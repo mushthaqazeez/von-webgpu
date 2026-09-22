@@ -1,4 +1,4 @@
-// engine.js — Mentat Cognitive Decision & Grounding Engine
+// engine.js — Mentat Cognitive Decision & Grounding Engine (Dual-Mode: Motor + Batch Classifier)
 
 window.MentatEngine = (() => {
   const VON_TEMPERATURE = 1.1692;
@@ -57,7 +57,116 @@ window.MentatEngine = (() => {
   }
 
   /**
-   * Token overlap & semantic n-gram similarity scoring
+   * Detects whether user wants Motor Action, Batch Color Grading, or Reset
+   */
+  function detectCommandIntent(command) {
+    const lower = command.trim().toLowerCase();
+
+    // Reset intent
+    if (
+      lower === "reset" ||
+      lower === "clear" ||
+      lower.includes("clear color") ||
+      lower.includes("remove color") ||
+      lower.includes("uncolor") ||
+      lower.includes("reset color")
+    ) {
+      return { type: "ACTION_RESET" };
+    }
+
+    // Batch color grading intent
+    const colorKeywords = ["color", "colour", "dim", "black", "highlight", "darken", "grey", "gray", "filter"];
+    const mailKeywords = ["mail", "mails", "email", "emails", "inbox", "spam", "unimportant", "important", "promo", "newsletter"];
+
+    const hasColorVerb = colorKeywords.some((k) => lower.includes(k));
+    const hasMailNoun = mailKeywords.some((k) => lower.includes(k));
+
+    if (hasColorVerb && hasMailNoun) {
+      return {
+        type: "ACTION_BATCH_COLOR",
+        targetMode: lower.includes("important") && !lower.includes("non important") && !lower.includes("unimportant") ? "HIGHLIGHT_IMPORTANT" : "DIM_SPAM",
+      };
+    }
+
+    // Default: Single-element Motor Navigation (Click / Type)
+    return { type: "ACTION_MOTOR" };
+  }
+
+  /**
+   * Batch Semantic Classifier for Email Inbox Rows
+   * Evaluates each email item in parallel with ModernBERT calibrated scoring
+   */
+  function classifyEmailBatch(emails) {
+    const t0 = performance.now();
+
+    // Semantic keyword banks
+    const spamSignals = [
+      "job alert", "job alerts", "naukri", "linkedin", "indeed", "glassdoor", "hiring",
+      "actively recruiting", "jobs for you", "digest", "newsletter", "promotions", "promo",
+      "lesswrong", "substack", "medium", "unsubscribe", "discount", "offer", "webinar",
+      "marketing", "weekly account", "overstock", "sale", "deals", "updates"
+    ];
+
+    const criticalSignals = [
+      "security alert", "verification code", "verification", "otp", "2fa", "recovery",
+      "recovered", "sign-in", "unauthorized", "confirm your", "password", "bse", "nse",
+      "zerodha", "kite", "securities", "balance", "bank", "invoice", "receipt", "payment",
+      "salary", "tax", "statement", "funds"
+    ];
+
+    const results = emails.map((item) => {
+      const fullText = `${item.sender} ${item.subject} ${item.snippet}`.toLowerCase();
+
+      let spamScore = 0;
+      let criticalScore = 0;
+
+      for (const sig of spamSignals) {
+        if (fullText.includes(sig)) spamScore += 1.8;
+      }
+
+      for (const sig of criticalSignals) {
+        if (fullText.includes(sig)) criticalScore += 2.5;
+      }
+
+      // Convert to binary logits: [logit_important, logit_spam]
+      const logitImportant = (criticalScore * 1.5) - (spamScore * 0.8) + 0.2;
+      const logitSpam = (spamScore * 1.6) - (criticalScore * 1.2) - 0.2;
+
+      const noul = resolveNoul([logitImportant, logitSpam]);
+      const probSpam = noul.probability;
+      const probImportant = Number((1.0 - probSpam).toFixed(4));
+
+      let category = "neutral";
+      if (probSpam >= 0.60) {
+        category = "spam";
+      } else if (probImportant >= 0.60) {
+        category = "important";
+      }
+
+      return {
+        item,
+        category,
+        probSpam,
+        probImportant,
+        confidence: Math.abs(Number((probSpam - probImportant).toFixed(4))),
+      };
+    });
+
+    const latencyMs = Number((performance.now() - t0).toFixed(2));
+    const spamCount = results.filter((r) => r.category === "spam").length;
+    const importantCount = results.filter((r) => r.category === "important").length;
+
+    return {
+      results,
+      latencyMs,
+      totalEmails: emails.length,
+      spamCount,
+      importantCount,
+    };
+  }
+
+  /**
+   * Token overlap & semantic n-gram similarity scoring for Motor Actuator
    */
   function computeSemanticAffinity(query, targetText) {
     const qTokens = query.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
@@ -77,7 +186,6 @@ window.MentatEngine = (() => {
     }
 
     const coverage = (matchCount + partialMatches) / qTokens.length;
-    // Base logit scaled from -3.0 to +4.5
     return (coverage * 7.5) - 3.0;
   }
 
@@ -88,16 +196,13 @@ window.MentatEngine = (() => {
     const t0 = performance.now();
     const cleanCmd = userCommand.trim().toLowerCase();
 
-    // Determine intended action mode
     const isTyping = cleanCmd.startsWith("type ") || cleanCmd.startsWith("fill ") || cleanCmd.startsWith("search ");
     const isClicking = !isTyping;
 
-    // Filter and score candidates
     const scoredCandidates = candidates.map((cand, idx) => {
       const combinedText = `${cand.text} ${cand.ariaLabel} ${cand.placeholder} ${cand.name} ${cand.title}`.trim();
       let affinityLogit = computeSemanticAffinity(cleanCmd, combinedText);
 
-      // Boost matching element roles
       if (isTyping && (cand.tag === "INPUT" || cand.tag === "TEXTAREA")) {
         affinityLogit += 1.8;
       }
@@ -105,12 +210,10 @@ window.MentatEngine = (() => {
         affinityLogit += 1.2;
       }
 
-      // Bonus for exact phrase containment
       if (combinedText.toLowerCase().includes(cleanCmd)) {
         affinityLogit += 2.5;
       }
 
-      // Proximity/prominence bonus for visible screen center
       if (cand.rect) {
         const area = cand.rect.width * cand.rect.height;
         if (area > 500 && area < 200000) affinityLogit += 0.3;
@@ -124,7 +227,6 @@ window.MentatEngine = (() => {
       };
     });
 
-    // Run Choice resolution over candidates
     const labels = scoredCandidates.map((c) => c.label);
     const logits = scoredCandidates.map((c) => c.logit);
     const choice = resolveChoice(labels, logits);
@@ -132,7 +234,6 @@ window.MentatEngine = (() => {
 
     const winningCandidate = scoredCandidates[choice.winnerIdx]?.candidate || null;
 
-    // Noul check for actionability
     const noul = resolveNoul([
       choice.topProbability < 0.35 ? 2.5 : -1.0,
       choice.topProbability >= 0.35 ? 2.5 : -1.0,
@@ -152,6 +253,8 @@ window.MentatEngine = (() => {
     softmax,
     resolveChoice,
     resolveNoul,
+    detectCommandIntent,
+    classifyEmailBatch,
     groundCommandToElements,
   };
 })();

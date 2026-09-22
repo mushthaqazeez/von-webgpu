@@ -226,20 +226,141 @@
     }
   }
 
-  // 7. Execute Mentat Command Pipeline
-  function executeMentatCommand(command) {
-    const candidates = harvestInteractiveNodes();
-    statusEl.innerText = `Computing over ${candidates.length} candidates...`;
+  // 7. Email Row Harvester (Gmail & Webmail Lists)
+  function harvestEmailRows() {
+    const selectors = [
+      "tr.zA",
+      "tr[role='row']",
+      "div[role='row'].zA",
+      "tbody tr",
+      "table[role='grid'] tr"
+    ];
 
-    // Invoke Mentat Decision Engine (fallback safely if engine wasn't ready)
+    let rawRows = [];
+    for (const sel of selectors) {
+      const found = Array.from(document.querySelectorAll(sel));
+      if (found.length > 0) {
+        rawRows = found;
+        break;
+      }
+    }
+
+    const emailItems = [];
+    for (const row of rawRows) {
+      if (row.querySelector("th") || row.classList.contains("thead")) continue;
+
+      const senderEl = row.querySelector(".yW, .zF, span[name], span[email], td:nth-child(4), td:nth-child(3)");
+      const senderText = senderEl ? (senderEl.innerText || senderEl.textContent || "").trim() : "";
+
+      const subjectEl = row.querySelector(".y6, span.bog, [data-thread-id], .xY, td:nth-child(5)");
+      const subjectText = subjectEl ? (subjectEl.innerText || subjectEl.textContent || "").trim() : "";
+
+      const snippetEl = row.querySelector(".y2, span.y2");
+      const snippetText = snippetEl ? (snippetEl.innerText || snippetEl.textContent || "").trim() : "";
+
+      const fullText = (row.innerText || row.textContent || "").trim();
+
+      if (fullText.length > 10) {
+        emailItems.push({
+          element: row,
+          sender: senderText || fullText.slice(0, 35),
+          subject: subjectText || fullText.slice(35, 120),
+          snippet: snippetText || fullText.slice(120, 200),
+        });
+      }
+    }
+
+    return emailItems;
+  }
+
+  // 8. Apply Color Grading
+  function applyEmailColorGrading(classificationResult) {
+    clearEmailColorGrading();
+
+    classificationResult.results.forEach(({ item, category, probSpam, probImportant }) => {
+      const row = item.element;
+
+      if (category === "spam") {
+        row.classList.add("mentat-dimmed-row");
+
+        if (!row.querySelector(".mentat-tag-spam")) {
+          const tag = document.createElement("span");
+          tag.className = "mentat-tag-spam";
+          tag.innerText = `PROMO ${(probSpam * 100).toFixed(0)}%`;
+          const targetCell = row.querySelector(".y6, span.bog, td:nth-child(5)") || row;
+          targetCell.appendChild(tag);
+        }
+      } else if (category === "important") {
+        row.classList.add("mentat-highlighted-row");
+
+        if (!row.querySelector(".mentat-tag-important")) {
+          const tag = document.createElement("span");
+          tag.className = "mentat-tag-important";
+          tag.innerText = `IMPORTANT ${(probImportant * 100).toFixed(0)}%`;
+          const targetCell = row.querySelector(".y6, span.bog, td:nth-child(5)") || row;
+          targetCell.appendChild(tag);
+        }
+      }
+    });
+  }
+
+  // 9. Clear Color Grading
+  function clearEmailColorGrading() {
+    document.querySelectorAll(".mentat-dimmed-row").forEach((el) => {
+      el.classList.remove("mentat-dimmed-row");
+    });
+    document.querySelectorAll(".mentat-highlighted-row").forEach((el) => {
+      el.classList.remove("mentat-highlighted-row");
+    });
+    document.querySelectorAll(".mentat-tag-spam, .mentat-tag-important").forEach((el) => {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    });
+  }
+
+  // 10. Execute Mentat Command Pipeline
+  function executeMentatCommand(command) {
     const engine = window.MentatEngine;
     if (!engine) {
       statusEl.innerText = "Engine initializing...";
       return;
     }
 
-    const result = engine.groundCommandToElements(command, candidates);
+    // Check dual-mode intent
+    const intent = engine.detectCommandIntent(command);
 
+    if (intent.type === "ACTION_RESET") {
+      clearEmailColorGrading();
+      statusEl.innerText = "Cleared Mentat color grading. Normal inbox restored.";
+      latencyEl.innerText = "0ms";
+      setTimeout(() => toggleHud(false), 900);
+      return;
+    }
+
+    if (intent.type === "ACTION_BATCH_COLOR") {
+      statusEl.innerText = "Harvesting inbox email list...";
+      const emails = harvestEmailRows();
+
+      if (emails.length === 0) {
+        statusEl.innerText = "No inbox list detected on this screen. Open Gmail inbox to color emails.";
+        return;
+      }
+
+      statusEl.innerText = `Evaluating ${emails.length} emails with System 1 classifier...`;
+      const batchResult = engine.classifyEmailBatch(emails);
+
+      applyEmailColorGrading(batchResult);
+
+      latencyEl.innerText = `${batchResult.latencyMs}ms`;
+      statusEl.innerText = `Classified ${emails.length} emails in ${batchResult.latencyMs}ms (${batchResult.spamCount} dimmed, ${batchResult.importantCount} highlighted).`;
+      setTimeout(() => toggleHud(false), 1200);
+      return;
+    }
+
+    // Default: Motor Navigation Mode (Click / Type)
+    const candidates = harvestInteractiveNodes();
+    statusEl.innerText = `Computing over ${candidates.length} candidates...`;
+
+    const result = engine.groundCommandToElements(command, candidates);
     latencyEl.innerText = `${result.latencyMs}ms`;
 
     if (!result.winner || !result.isActionable) {
@@ -252,10 +373,8 @@
 
     statusEl.innerText = `Target Lock: <${result.winner.tag}> "${result.winner.text.slice(0, 30)}"`;
 
-    // Scroll into view if offscreen
     targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
 
-    // Handle typing vs clicking
     setTimeout(() => {
       const lower = command.toLowerCase();
       if (lower.startsWith("type ") || lower.startsWith("fill ") || lower.startsWith("search ")) {
@@ -273,7 +392,6 @@
         statusEl.innerText = `Executed click on target.`;
       }
 
-      // Hide HUD after completion
       setTimeout(() => {
         toggleHud(false);
       }, 900);

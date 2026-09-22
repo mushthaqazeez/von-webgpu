@@ -239,3 +239,52 @@
   0% { transform: scale(1.15); opacity: 0; }
   100% { transform: scale(1); opacity: 1; }
 }
+
+/* Mentat Batch Color Grading Styles */
+.mentat-dimmed-row {
+  background-color: rgba(15, 20, 32, 0.95) !important;
+  opacity: 0.35 !important;
+  filter: grayscale(85%) !important;
+  transition: opacity 0.3s ease, filter 0.3s ease, background-color 0.3s ease !important;
+}
+
+.mentat-dimmed-row:hover {
+  opacity: 0.92 !important;
+  filter: grayscale(0%) !important;
+  background-color: rgba(30, 41, 59, 0.9) !important;
+}
+
+.mentat-highlighted-row {
+  background-color: rgba(6, 182, 212, 0.08) !important;
+  border-left: 4px solid #06b6d4 !important;
+  box-shadow: inset 0 0 15px rgba(6, 182, 212, 0.05) !important;
+  transition: all 0.3s ease !important;
+}
+
+.mentat-tag-spam {
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 0.65rem !important;
+  font-weight: 700 !important;
+  padding: 2px 6px !important;
+  border-radius: 4px !important;
+  background: rgba(15, 23, 42, 0.85) !important;
+  color: #94a3b8 !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  margin-left: 8px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+}
+
+.mentat-tag-important {
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 0.65rem !important;
+  font-weight: 700 !important;
+  padding: 2px 6px !important;
+  border-radius: 4px !important;
+  background: rgba(6, 182, 212, 0.18) !important;
+  color: #06b6d4 !important;
+  border: 1px solid rgba(6, 182, 212, 0.4) !important;
+  margin-left: 8px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+}
