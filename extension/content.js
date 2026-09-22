@@ -153,8 +153,84 @@
     }
   });
 
-  // 5. DOM Interactive Node Harvester
-  function harvestInteractiveNodes() {
+  // 4b. Page State Detector (Approach A: State Awareness)
+  function detectPageState() {
+    const isThreadView = Boolean(
+      document.querySelector('div[role="main"] h2, .ha, .gE, .adn, article, div[data-message-id]')
+    );
+    const hasRows = document.querySelectorAll("tr.zA, div[role='row'].zA, table[role='grid'] tr").length > 0;
+    const isDialog = Boolean(document.querySelector('[role="dialog"], .modal, .popup'));
+
+    if (isDialog) {
+      return { mode: "modal_view", description: "Modal dialog or popup overlay open" };
+    }
+    if (isThreadView && !hasRows) {
+      return { mode: "thread_view", description: "Reading opened email or detail thread" };
+    }
+    if (hasRows) {
+      return { mode: "list_view", description: "Browsing inbox email list" };
+    }
+    return { mode: "general_view", description: "Viewing web page" };
+  }
+
+  // 4c. Visual Icon Classifier (Approach A: Visual Semantics)
+  function classifyVisualIcon(el) {
+    const htmlStr = (el.innerHTML || "").toLowerCase();
+    const classStr = (el.className || "").toLowerCase();
+    const aria = (el.getAttribute("aria-label") || "").toLowerCase();
+    const tooltip = (el.getAttribute("data-tooltip") || "").toLowerCase();
+    const combined = `${classStr} ${aria} ${tooltip}`;
+
+    // 1. Back / Return Arrow
+    if (
+      combined.includes("back") ||
+      combined.includes("return") ||
+      combined.includes("previous") ||
+      htmlStr.includes("m20 11h7.83") || // Material Back Arrow
+      htmlStr.includes("m15.41 7.41") ||
+      htmlStr.includes("chevron-left")
+    ) {
+      return "arrow_left";
+    }
+
+    // 2. Search / Magnifier
+    if (combined.includes("search") || combined.includes("find") || htmlStr.includes("m15.5 14h-.79")) {
+      return "search";
+    }
+
+    // 3. Close / Dismiss
+    if (combined.includes("close") || combined.includes("dismiss") || combined.includes("clear") || htmlStr.includes("m19 6.41")) {
+      return "close";
+    }
+
+    // 4. Trash / Delete
+    if (combined.includes("trash") || combined.includes("delete") || combined.includes("bin") || htmlStr.includes("m6 19c0")) {
+      return "trash";
+    }
+
+    // 5. Compose / Add
+    if (combined.includes("compose") || combined.includes("create") || combined.includes("add") || htmlStr.includes("m19 13h-6v6")) {
+      return "compose";
+    }
+
+    // 6. Refresh / Sync
+    if (combined.includes("refresh") || combined.includes("reload") || combined.includes("sync")) {
+      return "refresh";
+    }
+
+    return "none";
+  }
+
+  // 4d. Spatial Topology Classifier
+  function classifySpatialTopology(rect) {
+    if (rect.top < 120 && rect.height < 90) return "top_toolbar";
+    if (rect.left < 260 && rect.width < 320) return "left_sidebar";
+    if (rect.bottom > window.innerHeight - 80) return "bottom_bar";
+    return "main_container";
+  }
+
+  // 5. DOM Interactive Node Harvester with Affordance Synthesizer
+  function harvestInteractiveNodes(pageState = detectPageState()) {
     const selector = "a, button, input, select, textarea, [role='button'], [role='link'], [role='row'], tr.zA, tr[role='row'], [onclick], [tabindex]";
     const rawElements = Array.from(document.querySelectorAll(selector));
 
@@ -177,12 +253,30 @@
       if (overlayRoot.contains(el)) continue;
 
       const isEmailRow = el.matches ? (el.matches("tr.zA, div[role='row'].zA, tr[role='row']") || el.classList.contains("zA")) : false;
-      const text = el.innerText || el.textContent || "";
+      const text = (el.innerText || el.textContent || "").trim();
       const ariaLabel = el.getAttribute("aria-label") || "";
       const placeholder = el.getAttribute("placeholder") || "";
       const name = el.getAttribute("name") || "";
       const title = el.getAttribute("title") || "";
-      const role = el.getAttribute("role") || "";
+      const role = el.getAttribute("role") || el.tagName.toLowerCase();
+
+      const icon = classifyVisualIcon(el);
+      const location = classifySpatialTopology(rect);
+
+      // Determine affordance action tag
+      let affordanceAction = "interaction";
+      if (icon === "arrow_left" || ariaLabel.toLowerCase().includes("back")) {
+        affordanceAction = "navigate_back";
+      } else if (icon === "search" || role === "searchbox") {
+        affordanceAction = "search";
+      } else if (isEmailRow) {
+        affordanceAction = "read_email_row";
+      } else if (role === "button" || el.tagName === "BUTTON") {
+        affordanceAction = "action_button";
+      }
+
+      const cleanLabel = (ariaLabel || title || placeholder || text).slice(0, 70).replace(/[\r\n\t]+/g, " ");
+      const affordanceStr = `[AFFORDANCE: ${affordanceAction} | ROLE: ${role} | LOCATION: ${location} | LABEL: '${cleanLabel}' | ICON: ${icon}]`;
 
       candidates.push({
         element: el,
@@ -195,6 +289,10 @@
         role,
         isEmailRow,
         rect,
+        icon,
+        location,
+        affordanceAction,
+        affordanceStr,
       });
     }
 
@@ -327,8 +425,8 @@
       return;
     }
 
-    // Check dual-mode intent
-    const intent = engine.detectCommandIntent(command);
+    // Check dual-mode intent via Vector Intent Projections
+    const intent = await engine.detectCommandIntent(command);
 
     if (intent.type === "ACTION_RESET") {
       clearEmailColorGrading();
@@ -336,6 +434,68 @@
       latencyEl.innerText = "0ms";
       setTimeout(() => toggleHud(false), 900);
       return;
+    }
+
+    if (intent.type === "ACTION_NAV") {
+      const t0 = performance.now();
+      if (intent.action === "back") {
+        // Look for in-page back buttons (e.g. Gmail's "Back to Inbox", back buttons with aria-label or tooltip)
+        const backBtn = document.querySelector(
+          '[aria-label*="Back" i], [title*="Back" i], [data-tooltip*="Back" i], div[act="19"], button.back-btn, a.back-btn'
+        );
+        const latency = Number((performance.now() - t0).toFixed(2));
+        latencyEl.innerText = `${latency}ms`;
+
+        if (backBtn && backBtn.offsetParent !== null) {
+          drawTargetLock(backBtn, 0.98, latency);
+          statusEl.innerText = `Target Lock: Back Button (${backBtn.getAttribute("aria-label") || "Back"}). Navigating...`;
+          setTimeout(() => {
+            backBtn.click();
+            clearTargetLock();
+            toggleHud(false);
+          }, 350);
+          return;
+        }
+
+        // Fallback: Browser history back
+        statusEl.innerText = "Executing browser history back...";
+        setTimeout(() => {
+          window.history.back();
+          toggleHud(false);
+        }, 200);
+        return;
+      }
+
+      if (intent.action === "forward") {
+        statusEl.innerText = "Executing browser forward...";
+        setTimeout(() => {
+          window.history.forward();
+          toggleHud(false);
+        }, 200);
+        return;
+      }
+
+      if (intent.action === "refresh") {
+        statusEl.innerText = "Reloading page...";
+        setTimeout(() => window.location.reload(), 250);
+        return;
+      }
+
+      if (intent.action === "scroll_down") {
+        window.scrollBy({ top: window.innerHeight * 0.75, behavior: "smooth" });
+        statusEl.innerText = "Scrolled down.";
+        latencyEl.innerText = "2ms";
+        setTimeout(() => toggleHud(false), 600);
+        return;
+      }
+
+      if (intent.action === "scroll_up") {
+        window.scrollBy({ top: -window.innerHeight * 0.75, behavior: "smooth" });
+        statusEl.innerText = "Scrolled up.";
+        latencyEl.innerText = "2ms";
+        setTimeout(() => toggleHud(false), 600);
+        return;
+      }
     }
 
     if (intent.type === "ACTION_BATCH_COLOR") {
@@ -358,11 +518,12 @@
       return;
     }
 
-    // Default: Motor Navigation Mode (Click / Type)
-    const candidates = harvestInteractiveNodes();
-    statusEl.innerText = `Neural grounding over ${candidates.length} candidates...`;
+    // Default: Motor Navigation Mode (Click / Type / Affordance Grounding)
+    const pageState = detectPageState();
+    const candidates = harvestInteractiveNodes(pageState);
+    statusEl.innerText = `Affordance grounding over ${candidates.length} candidates (${pageState.mode})...`;
 
-    const result = await engine.groundCommandToElements(command, candidates);
+    const result = await engine.groundCommandToElements(command, candidates, pageState);
     latencyEl.innerText = `${result.latencyMs}ms`;
 
     if (!result.winner || !result.isActionable) {
