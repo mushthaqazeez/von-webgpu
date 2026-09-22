@@ -1,6 +1,11 @@
 // content.js — Mentat Cognitive Browser Pilot (Content Script)
 
 (() => {
+  if (window.__mentat_pilot_injected) {
+    return;
+  }
+  window.__mentat_pilot_injected = true;
+
   let isHudVisible = false;
   let recognition = null;
   let isListening = false;
@@ -9,7 +14,6 @@
   // 1. Inject Overlay Root & HUD into DOM
   const overlayRoot = document.createElement("div");
   overlayRoot.id = "mentat-overlay-root";
-  document.body.appendChild(overlayRoot);
 
   overlayRoot.innerHTML = `
     <div id="mentat-hud">
@@ -25,7 +29,7 @@
       </div>
 
       <div class="mentat-input-row">
-        <input type="text" id="mentat-prompt-input" placeholder="Speak or type command (e.g. 'click on billing', 'search for laptops')..." autocomplete="off" spellcheck="false" />
+        <input type="text" id="mentat-prompt-input" placeholder="Speak or type command (e.g. 'click on repositories', 'search for laptops')..." autocomplete="off" spellcheck="false" />
         <button id="mentat-mic-btn" title="Toggle Voice Recognition (Speak command)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
@@ -43,11 +47,24 @@
     </div>
   `;
 
-  const hudEl = document.getElementById("mentat-hud");
-  const inputEl = document.getElementById("mentat-prompt-input");
-  const micBtn = document.getElementById("mentat-mic-btn");
-  const latencyEl = document.getElementById("mentat-latency-readout");
-  const statusEl = document.getElementById("mentat-status-text");
+  function mountOverlay() {
+    if (document.getElementById("mentat-overlay-root")) return;
+    const container = document.body || document.documentElement;
+    if (container) {
+      container.appendChild(overlayRoot);
+    } else {
+      window.addEventListener("DOMContentLoaded", () => {
+        (document.body || document.documentElement).appendChild(overlayRoot);
+      });
+    }
+  }
+  mountOverlay();
+
+  const hudEl = overlayRoot.querySelector("#mentat-hud");
+  const inputEl = overlayRoot.querySelector("#mentat-prompt-input");
+  const micBtn = overlayRoot.querySelector("#mentat-mic-btn");
+  const latencyEl = overlayRoot.querySelector("#mentat-latency-readout");
+  const statusEl = overlayRoot.querySelector("#mentat-status-text");
 
   // 2. Initialize Speech Recognition (Web Speech API)
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -102,6 +119,7 @@
 
   // 3. Toggle HUD visibility
   function toggleHud(forceState) {
+    mountOverlay();
     isHudVisible = typeof forceState === "boolean" ? forceState : !isHudVisible;
     if (isHudVisible) {
       hudEl.classList.add("active");
@@ -213,8 +231,14 @@
     const candidates = harvestInteractiveNodes();
     statusEl.innerText = `Computing over ${candidates.length} candidates...`;
 
-    // Invoke Mentat Decision Engine
-    const result = window.MentatEngine.groundCommandToElements(command, candidates);
+    // Invoke Mentat Decision Engine (fallback safely if engine wasn't ready)
+    const engine = window.MentatEngine;
+    if (!engine) {
+      statusEl.innerText = "Engine initializing...";
+      return;
+    }
+
+    const result = engine.groundCommandToElements(command, candidates);
 
     latencyEl.innerText = `${result.latencyMs}ms`;
 
@@ -235,7 +259,6 @@
     setTimeout(() => {
       const lower = command.toLowerCase();
       if (lower.startsWith("type ") || lower.startsWith("fill ") || lower.startsWith("search ")) {
-        // Extract text to type
         const textToType = command.replace(/^(type|fill|search)\s+/i, "");
         targetEl.focus();
         targetEl.value = textToType;
@@ -243,7 +266,6 @@
         targetEl.dispatchEvent(new Event("change", { bubbles: true }));
         statusEl.innerText = `Typed: "${textToType}"`;
       } else {
-        // Click
         targetEl.focus();
         targetEl.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
         targetEl.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
@@ -258,10 +280,14 @@
     }, 350);
   }
 
-  // Listen for messages from background script
+  // Listen for messages from background script or popup
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "toggle-mentat") {
       toggleHud();
+      if (request.command) {
+        inputEl.value = request.command;
+        executeMentatCommand(request.command);
+      }
       sendResponse({ status: "toggled" });
     }
   });
