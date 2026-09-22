@@ -155,7 +155,7 @@
 
   // 5. DOM Interactive Node Harvester
   function harvestInteractiveNodes() {
-    const selector = "a, button, input, select, textarea, [role='button'], [role='link'], [onclick], [tabindex]:not([tabindex='-1'])";
+    const selector = "a, button, input, select, textarea, [role='button'], [role='link'], [role='row'], tr.zA, tr[role='row'], [onclick], [tabindex]";
     const rawElements = Array.from(document.querySelectorAll(selector));
 
     const candidates = [];
@@ -176,6 +176,7 @@
       // Ignore elements inside our own HUD
       if (overlayRoot.contains(el)) continue;
 
+      const isEmailRow = el.matches ? (el.matches("tr.zA, div[role='row'].zA, tr[role='row']") || el.classList.contains("zA")) : false;
       const text = el.innerText || el.textContent || "";
       const ariaLabel = el.getAttribute("aria-label") || "";
       const placeholder = el.getAttribute("placeholder") || "";
@@ -186,12 +187,13 @@
       candidates.push({
         element: el,
         tag: el.tagName,
-        text: text.slice(0, 100),
+        text: text.slice(0, 140),
         ariaLabel,
         placeholder,
         name,
         title,
         role,
+        isEmailRow,
         rect,
       });
     }
@@ -385,10 +387,13 @@
         targetEl.dispatchEvent(new Event("change", { bubbles: true }));
         statusEl.innerText = `Typed: "${textToType}"`;
       } else {
-        targetEl.focus();
-        targetEl.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-        targetEl.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-        targetEl.click();
+        const clickTarget = (targetEl.matches && targetEl.matches("tr.zA, div[role='row'].zA, tr[role='row']"))
+          ? (targetEl.querySelector(".y6, span.bog, td:nth-child(5)") || targetEl)
+          : targetEl;
+        clickTarget.focus();
+        clickTarget.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
+        clickTarget.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
+        clickTarget.click();
         statusEl.innerText = `Executed click on target.`;
       }
 

@@ -57,6 +57,44 @@ window.MentatEngine = (() => {
   }
 
   /**
+   * Clean query: strips action verbs and conversational stopwords
+   */
+  function cleanTargetQuery(rawCommand) {
+    let text = rawCommand.trim().toLowerCase();
+    // Strip action prefixes
+    text = text.replace(/^(click\s+(on\s+)?|press\s+(on\s+)?|open\s+|go\s+to\s+|select\s+|navigate\s+to\s+|tap\s+(on\s+)?|focus\s+(on\s+)?)/i, "");
+    // Strip articles
+    text = text.replace(/^(the\s+|a\s+|an\s+)/i, "");
+    return text.trim();
+  }
+
+  /**
+   * Parse ordinals like "first", "second", "1st", "top", "last"
+   */
+  function parseOrdinalCommand(command) {
+    const lower = command.toLowerCase().trim();
+    const ordinalsMap = {
+      "first": 0, "1st": 0, "top": 0, "one": 0,
+      "second": 1, "2nd": 1, "two": 1,
+      "third": 2, "3rd": 2, "three": 2,
+      "fourth": 3, "4th": 3, "four": 3,
+      "fifth": 4, "5th": 4, "five": 4,
+      "last": -1, "bottom": -1
+    };
+
+    for (const [key, idx] of Object.entries(ordinalsMap)) {
+      // Regex for standalone word match
+      const regex = new RegExp(`\\b${key}\\b`, "i");
+      if (regex.test(lower)) {
+        const isEmailTarget = lower.includes("mail") || lower.includes("email") || lower.includes("row") || lower.includes("message");
+        return { hasOrdinal: true, index: idx, isEmailTarget };
+      }
+    }
+
+    return { hasOrdinal: false, index: -1, isEmailTarget: false };
+  }
+
+  /**
    * Detects whether user wants Motor Action, Batch Color Grading, or Reset
    */
   function detectCommandIntent(command) {
@@ -74,14 +112,12 @@ window.MentatEngine = (() => {
       return { type: "ACTION_RESET" };
     }
 
-    // Batch color grading intent
-    const colorKeywords = ["color", "colour", "dim", "black", "highlight", "darken", "grey", "gray", "filter"];
-    const mailKeywords = ["mail", "mails", "email", "emails", "inbox", "spam", "unimportant", "important", "promo", "newsletter"];
-
+    // Batch color grading intent (must be an intentional batch coloring command, NOT clicking a single email)
+    const colorKeywords = ["color", "colour", "dim", "blacken", "highlight all", "filter", "darken"];
     const hasColorVerb = colorKeywords.some((k) => lower.includes(k));
-    const hasMailNoun = mailKeywords.some((k) => lower.includes(k));
+    const hasSpamNoun = lower.includes("spam") || lower.includes("unimportant") || lower.includes("promo") || lower.includes("promotional");
 
-    if (hasColorVerb && hasMailNoun) {
+    if (hasColorVerb && (lower.includes("mail") || lower.includes("email") || hasSpamNoun)) {
       return {
         type: "ACTION_BATCH_COLOR",
         targetMode: lower.includes("important") && !lower.includes("non important") && !lower.includes("unimportant") ? "HIGHLIGHT_IMPORTANT" : "DIM_SPAM",
@@ -94,12 +130,10 @@ window.MentatEngine = (() => {
 
   /**
    * Batch Semantic Classifier for Email Inbox Rows
-   * Evaluates each email item in parallel with ModernBERT calibrated scoring
    */
   function classifyEmailBatch(emails) {
     const t0 = performance.now();
 
-    // Semantic keyword banks
     const spamSignals = [
       "job alert", "job alerts", "naukri", "linkedin", "indeed", "glassdoor", "hiring",
       "actively recruiting", "jobs for you", "digest", "newsletter", "promotions", "promo",
@@ -128,7 +162,6 @@ window.MentatEngine = (() => {
         if (fullText.includes(sig)) criticalScore += 2.5;
       }
 
-      // Convert to binary logits: [logit_important, logit_spam]
       const logitImportant = (criticalScore * 1.5) - (spamScore * 0.8) + 0.2;
       const logitSpam = (spamScore * 1.6) - (criticalScore * 1.2) - 0.2;
 
@@ -166,27 +199,31 @@ window.MentatEngine = (() => {
   }
 
   /**
-   * Token overlap & semantic n-gram similarity scoring for Motor Actuator
+   * Semantic affinity scoring with clean token matching
    */
-  function computeSemanticAffinity(query, targetText) {
-    const qTokens = query.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
-    const tTokens = targetText.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
+  function computeSemanticAffinity(cleanQuery, targetText) {
+    const qTokens = cleanQuery.replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((t) => t.length > 1);
+    const tTextLower = targetText.toLowerCase();
 
-    if (qTokens.length === 0 || tTokens.length === 0) return -5.0;
+    if (qTokens.length === 0 || tTextLower.length === 0) return -5.0;
+
+    // Full phrase exact match
+    if (tTextLower.includes(cleanQuery)) {
+      return 6.0;
+    }
 
     let matchCount = 0;
-    let partialMatches = 0;
-
     for (const q of qTokens) {
-      if (tTokens.includes(q)) {
+      if (tTextLower.includes(q)) {
         matchCount += 1.0;
-      } else if (tTokens.some((t) => t.includes(q) || q.includes(t))) {
-        partialMatches += 0.5;
       }
     }
 
-    const coverage = (matchCount + partialMatches) / qTokens.length;
-    return (coverage * 7.5) - 3.0;
+    const coverage = matchCount / qTokens.length;
+    if (coverage === 1.0) return 5.0;
+    if (coverage >= 0.5) return (coverage * 4.0) + 1.0;
+
+    return (coverage * 5.0) - 3.0;
   }
 
   /**
@@ -194,29 +231,50 @@ window.MentatEngine = (() => {
    */
   function groundCommandToElements(userCommand, candidates) {
     const t0 = performance.now();
-    const cleanCmd = userCommand.trim().toLowerCase();
+    const rawCmd = userCommand.trim().toLowerCase();
+    const cleanTarget = cleanTargetQuery(rawCmd);
+    const ordinal = parseOrdinalCommand(rawCmd);
 
-    const isTyping = cleanCmd.startsWith("type ") || cleanCmd.startsWith("fill ") || cleanCmd.startsWith("search ");
+    // 1. Ordinal resolution (e.g. "first mail", "second email", "top link")
+    if (ordinal.hasOrdinal) {
+      // Find candidate rows / emails if requested
+      const matchingPool = ordinal.isEmailTarget
+        ? candidates.filter((c) => c.isEmailRow || c.tag === "TR" || (c.text && c.text.length > 20))
+        : candidates;
+
+      if (matchingPool.length > 0) {
+        const targetIdx = ordinal.index === -1 ? matchingPool.length - 1 : Math.min(ordinal.index, matchingPool.length - 1);
+        const winner = matchingPool[targetIdx];
+        return {
+          winner,
+          confidence: 0.99,
+          probability: 0.99,
+          isActionable: true,
+          latencyMs: Number((performance.now() - t0).toFixed(2)),
+          totalCandidates: candidates.length,
+        };
+      }
+    }
+
+    // 2. Standard Semantic Intent Grounding
+    const isTyping = rawCmd.startsWith("type ") || rawCmd.startsWith("fill ") || rawCmd.startsWith("search ");
     const isClicking = !isTyping;
 
     const scoredCandidates = candidates.map((cand, idx) => {
       const combinedText = `${cand.text} ${cand.ariaLabel} ${cand.placeholder} ${cand.name} ${cand.title}`.trim();
-      let affinityLogit = computeSemanticAffinity(cleanCmd, combinedText);
+      let affinityLogit = computeSemanticAffinity(cleanTarget, combinedText);
 
+      // Boost matching element types
       if (isTyping && (cand.tag === "INPUT" || cand.tag === "TEXTAREA")) {
-        affinityLogit += 1.8;
+        affinityLogit += 2.0;
       }
-      if (isClicking && (cand.tag === "BUTTON" || cand.tag === "A" || cand.role === "button")) {
-        affinityLogit += 1.2;
-      }
-
-      if (combinedText.toLowerCase().includes(cleanCmd)) {
-        affinityLogit += 2.5;
+      if (isClicking && (cand.tag === "BUTTON" || cand.tag === "A" || cand.role === "button" || cand.isEmailRow)) {
+        affinityLogit += 1.5;
       }
 
-      if (cand.rect) {
-        const area = cand.rect.width * cand.rect.height;
-        if (area > 500 && area < 200000) affinityLogit += 0.3;
+      // Bonus if candidate contains the primary keyword directly
+      if (combinedText.toLowerCase().includes(cleanTarget)) {
+        affinityLogit += 3.0;
       }
 
       return {
@@ -234,16 +292,14 @@ window.MentatEngine = (() => {
 
     const winningCandidate = scoredCandidates[choice.winnerIdx]?.candidate || null;
 
-    const noul = resolveNoul([
-      choice.topProbability < 0.35 ? 2.5 : -1.0,
-      choice.topProbability >= 0.35 ? 2.5 : -1.0,
-    ]);
+    // Calibrated actionability threshold: if top candidate has positive logit or >= 25% prob
+    const isActionable = choice.topProbability >= 0.20 || (scoredCandidates[choice.winnerIdx]?.logit ?? -5) > 0;
 
     return {
       winner: winningCandidate,
       confidence: choice.confidence,
       probability: choice.topProbability,
-      isActionable: noul.holdsTrue,
+      isActionable,
       latencyMs: latency,
       totalCandidates: candidates.length,
     };
@@ -253,6 +309,8 @@ window.MentatEngine = (() => {
     softmax,
     resolveChoice,
     resolveNoul,
+    cleanTargetQuery,
+    parseOrdinalCommand,
     detectCommandIntent,
     classifyEmailBatch,
     groundCommandToElements,
