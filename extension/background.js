@@ -38,7 +38,7 @@ chrome.commands.onCommand.addListener(async (command) => {
         });
         await chrome.scripting.executeScript({
           target: { tabId: tab.id },
-          files: ["engine.js", "content.js"],
+          files: ["transformers.min.js", "engine.js", "content.js"],
         });
 
         setTimeout(async () => {

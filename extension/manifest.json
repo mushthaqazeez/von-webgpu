@@ -1,16 +1,20 @@
 {
   "manifest_version": 3,
   "name": "Mentat — High-Speed Cognitive Browser Pilot",
-  "version": "1.0.0",
-  "description": "Sub-15ms voice and text browser motor reflexes powered by System 1 ModernBERT inference.",
+  "version": "1.1.0",
+  "description": "Sub-15ms voice and text browser motor reflexes powered by local on-device Neural Transformer Embeddings.",
   "permissions": [
     "activeTab",
     "storage",
-    "scripting"
+    "scripting",
+    "tabs"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
   "action": {
     "default_popup": "popup.html",
     "default_title": "Mentat Browser Pilot (Alt+M)"
@@ -21,9 +25,18 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["engine.js", "content.js"],
+      "js": ["transformers.min.js", "engine.js", "content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "transformers.min.js",
+        "*.wasm"
+      ],
+      "matches": ["<all_urls>"]
     }
   ],
   "commands": {

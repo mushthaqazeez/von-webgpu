@@ -49,7 +49,7 @@ async function triggerMentatInActiveTab(commandText = null) {
 
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        files: ["engine.js", "content.js"],
+        files: ["transformers.min.js", "engine.js", "content.js"],
       });
 
       // Brief delay to allow content script initialization
@@ -60,13 +60,16 @@ async function triggerMentatInActiveTab(commandText = null) {
         } catch (retryErr) {
           showAlert("Could not activate HUD. Please refresh the page and try Alt+M.");
         }
-      }, 120);
+      }, 150);
     } catch (injectErr) {
-      console.error("[Mentat Popup] Injection failed:", injectErr);
-      showAlert(`Could not inject Mentat into tab: ${injectErr.message || "Permission restricted."}`);
+      if (injectErr && injectErr.message && (injectErr.message.includes("chrome://") || injectErr.message.includes("Cannot access"))) {
+        showAlert("⚠️ Mentat cannot run on internal browser pages (like chrome://). Please switch to a website (e.g. github.com, google.com) and try again.");
+      } else {
+        console.warn("[Mentat Popup] Injection notice:", injectErr);
+        showAlert(`Could not inject Mentat into tab: ${injectErr.message || "Permission restricted."}`);
+      }
     }
   } catch (err) {
-    console.error("[Mentat Popup] Error:", err);
     showAlert("Unexpected error occurred while communicating with tab.");
   }
 }

@@ -320,7 +320,7 @@
   }
 
   // 10. Execute Mentat Command Pipeline
-  function executeMentatCommand(command) {
+  async function executeMentatCommand(command) {
     const engine = window.MentatEngine;
     if (!engine) {
       statusEl.innerText = "Engine initializing...";
@@ -347,22 +347,22 @@
         return;
       }
 
-      statusEl.innerText = `Evaluating ${emails.length} emails with System 1 classifier...`;
-      const batchResult = engine.classifyEmailBatch(emails);
+      statusEl.innerText = `Evaluating ${emails.length} emails with Neural Embeddings on WebGPU...`;
+      const batchResult = await engine.classifyEmailBatch(emails);
 
       applyEmailColorGrading(batchResult);
 
       latencyEl.innerText = `${batchResult.latencyMs}ms`;
-      statusEl.innerText = `Classified ${emails.length} emails in ${batchResult.latencyMs}ms (${batchResult.spamCount} dimmed, ${batchResult.importantCount} highlighted).`;
-      setTimeout(() => toggleHud(false), 1200);
+      statusEl.innerText = `Neural classified ${emails.length} emails in ${batchResult.latencyMs}ms (${batchResult.spamCount} dimmed, ${batchResult.importantCount} highlighted).`;
+      setTimeout(() => toggleHud(false), 1400);
       return;
     }
 
     // Default: Motor Navigation Mode (Click / Type)
     const candidates = harvestInteractiveNodes();
-    statusEl.innerText = `Computing over ${candidates.length} candidates...`;
+    statusEl.innerText = `Neural grounding over ${candidates.length} candidates...`;
 
-    const result = engine.groundCommandToElements(command, candidates);
+    const result = await engine.groundCommandToElements(command, candidates);
     latencyEl.innerText = `${result.latencyMs}ms`;
 
     if (!result.winner || !result.isActionable) {
