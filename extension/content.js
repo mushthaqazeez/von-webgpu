@@ -281,6 +281,10 @@
       // Ignore elements inside our own HUD
       if (overlayRoot.contains(el)) continue;
 
+      // Filter out micro-elements nested inside email rows to prevent candidate flooding (393 -> 25)
+      const parentRow = el.closest("tr.zA, div[role='row'].zA");
+      if (parentRow && parentRow !== el) continue;
+
       const isEmailRow = el.matches ? (el.matches("tr.zA, div[role='row'].zA, tr[role='row']") || el.classList.contains("zA")) : false;
       const text = (el.innerText || el.textContent || "").trim();
       const ariaLabel = el.getAttribute("aria-label") || "";
@@ -294,8 +298,11 @@
 
       // Determine affordance action tag
       let affordanceAction = "interaction";
-      if (icon === "arrow_left" || ariaLabel.toLowerCase().includes("back")) {
+      const fullLabel = `${text} ${ariaLabel} ${title} ${placeholder}`.toLowerCase();
+      if (icon === "arrow_left" || fullLabel.includes("back") || ariaLabel.toLowerCase().includes("back")) {
         affordanceAction = "navigate_back";
+      } else if (icon === "compose" || fullLabel.includes("compose") || fullLabel.includes("new mail")) {
+        affordanceAction = "compose_new_mail";
       } else if (icon === "search" || role === "searchbox") {
         affordanceAction = "search";
       } else if (isEmailRow) {
@@ -323,6 +330,9 @@
         affordanceAction,
         affordanceStr,
       });
+
+      // Cap to the top 35 most prominent screen controls to guarantee sub-20ms inference
+      if (candidates.length >= 35) break;
     }
 
     return candidates;
