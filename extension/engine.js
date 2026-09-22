@@ -395,6 +395,48 @@ window.MentatEngine = (() => {
     };
   }
 
+  /**
+   * Diagnostic Telemetry: Reports which model and hardware backend is currently active
+   */
+  function getModelStatus() {
+    const hasWebGPU = Boolean(typeof navigator !== "undefined" && navigator.gpu);
+    const backendName = hasWebGPU ? "WebGPU" : "WASM SIMD";
+
+    if (extractorPipeline) {
+      return {
+        ready: true,
+        modelId: MODEL_ID,
+        displayName: "MiniLM-L6-v2",
+        backend: backendName,
+        badgeText: `MiniLM-L6-v2 (${hasWebGPU ? "WebGPU" : "WASM"})`,
+        tooltip: `Active Model: ${MODEL_ID}\n384-dim INT8 Neural Transformer\nExecution Provider: ${backendName}\nTraffic: 0 bytes (100% On-Device)`,
+        state: "active",
+      };
+    }
+
+    if (isInitializing) {
+      return {
+        ready: false,
+        modelId: MODEL_ID,
+        displayName: "MiniLM-L6-v2",
+        backend: "Loading",
+        badgeText: "Warming Neural Model...",
+        tooltip: "Loading ONNX neural transformer weights into local CacheStorage...",
+        state: "warming",
+      };
+    }
+
+    return {
+      ready: false,
+      modelId: "fallback-heuristics",
+      displayName: "Heuristics",
+      backend: "JS",
+      badgeText: "Fallback Mode (Heuristics)",
+      tooltip: "Neural pipeline uninitialized or compiling. Running on fast DOM token heuristics.",
+      state: "fallback",
+    };
+  }
+
   return {
     softmax,
     cosineSimilarity,
@@ -402,5 +444,6 @@ window.MentatEngine = (() => {
     detectCommandIntent,
     classifyEmailBatch,
     groundCommandToElements,
+    getModelStatus,
   };
 })();

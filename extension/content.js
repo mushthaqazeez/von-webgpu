@@ -23,13 +23,16 @@
           <span>Mentat Pilot</span>
         </div>
         <div class="mentat-telemetry">
-          <span class="mentat-badge-live"><span class="mentat-badge-live-dot"></span>System 1 Active</span>
+          <span id="mentat-model-badge" class="mentat-badge-live" title="On-device Neural Model Telemetry">
+            <span id="mentat-model-dot" class="mentat-badge-live-dot"></span>
+            <span id="mentat-model-name">Checking Model...</span>
+          </span>
           <span id="mentat-latency-readout">Ready</span>
         </div>
       </div>
 
       <div class="mentat-input-row">
-        <input type="text" id="mentat-prompt-input" placeholder="Speak or type command (e.g. 'click on repositories', 'search for laptops')..." autocomplete="off" spellcheck="false" />
+        <input type="text" id="mentat-prompt-input" placeholder="Speak or type command (e.g. 'go back', 'dim spam', 'import project')..." autocomplete="off" spellcheck="false" />
         <button id="mentat-mic-btn" title="Toggle Voice Recognition (Speak command)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
@@ -65,6 +68,31 @@
   const micBtn = overlayRoot.querySelector("#mentat-mic-btn");
   const latencyEl = overlayRoot.querySelector("#mentat-latency-readout");
   const statusEl = overlayRoot.querySelector("#mentat-status-text");
+  const modelBadgeEl = overlayRoot.querySelector("#mentat-model-badge");
+  const modelDotEl = overlayRoot.querySelector("#mentat-model-dot");
+  const modelNameEl = overlayRoot.querySelector("#mentat-model-name");
+
+  function updateModelBadge() {
+    if (!window.MentatEngine || !modelBadgeEl) return;
+    const status = window.MentatEngine.getModelStatus();
+
+    modelNameEl.innerText = status.badgeText;
+    modelBadgeEl.title = status.tooltip;
+
+    modelBadgeEl.classList.remove("warming", "fallback");
+    modelDotEl.classList.remove("warning", "danger");
+
+    if (status.state === "warming") {
+      modelBadgeEl.classList.add("warming");
+      modelDotEl.classList.add("warning");
+    } else if (status.state === "fallback") {
+      modelBadgeEl.classList.add("fallback");
+      modelDotEl.classList.add("danger");
+    }
+  }
+
+  // Update badge status periodically
+  setInterval(updateModelBadge, 1500);
 
   // 2. Initialize Speech Recognition (Web Speech API)
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -123,6 +151,7 @@
     isHudVisible = typeof forceState === "boolean" ? forceState : !isHudVisible;
     if (isHudVisible) {
       hudEl.classList.add("active");
+      updateModelBadge();
       setTimeout(() => inputEl.focus(), 50);
       statusEl.innerText = "Scanning page DOM nodes...";
       const nodes = harvestInteractiveNodes();
