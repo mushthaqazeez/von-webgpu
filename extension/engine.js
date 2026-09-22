@@ -93,9 +93,9 @@ window.MentatEngine = (() => {
         // 2. Pre-compute Action Intent Anchors (Approach A: Semantic Intent Vector Space)
         const intentAnchorDefs = {
           ACTION_NAV: "navigate backward, go back, return to previous page, forward, reload, or scroll view",
-          ACTION_BATCH_COLOR: "color, highlight, filter, or dim emails in the inbox list by category or spam",
-          ACTION_RESET: "reset, clear, restore normal view, remove color grading and styling",
-          ACTION_MOTOR: "click, select, open, or focus a specific interactive element or button on the screen",
+          ACTION_BATCH_COLOR: "apply color styling, dim junk, highlight important items, shade or tint list elements",
+          ACTION_RESET: "reset colors, clear custom styling, restore default view",
+          ACTION_MOTOR: "interact with UI, click button, compose mail, write message, send email, open link, fill input, search",
         };
 
         const intentKeys = Object.keys(intentAnchorDefs);
@@ -173,11 +173,17 @@ window.MentatEngine = (() => {
         }
 
         if (detectedType === "ACTION_BATCH_COLOR") {
-          return {
-            type: "ACTION_BATCH_COLOR",
-            targetMode: lower.includes("important") && !lower.includes("non") ? "HIGHLIGHT_IMPORTANT" : "DIM_SPAM",
-            confidence: Number(sims[maxIdx].toFixed(2)),
-          };
+          // Explicit guard: Batch coloring requires a visual styling verb (color, dim, highlight, shade)
+          const hasVisualVerb = ["color", "colour", "dim", "highlight", "shade", "tint", "darken", "filter"].some((v) => lower.includes(v));
+          if (hasVisualVerb) {
+            return {
+              type: "ACTION_BATCH_COLOR",
+              targetMode: lower.includes("important") && !lower.includes("non") ? "HIGHLIGHT_IMPORTANT" : "DIM_SPAM",
+              confidence: Number(sims[maxIdx].toFixed(2)),
+            };
+          }
+          // Otherwise, it is a motor interaction (e.g. "compose mail", "send mail")
+          return { type: "ACTION_MOTOR", confidence: 0.90 };
         }
 
         return { type: detectedType, confidence: Number(sims[maxIdx].toFixed(2)) };
@@ -188,7 +194,7 @@ window.MentatEngine = (() => {
 
     // Fallback: heuristic check if neural engine is still cold
     if (lower.includes("back") || lower.includes("return")) return { type: "ACTION_NAV", action: "back" };
-    if (lower.includes("color") || lower.includes("colour") || lower.includes("dim") || lower.includes("spam")) {
+    if (lower.includes("color") || lower.includes("colour") || lower.includes("dim") || lower.includes("highlight")) {
       return { type: "ACTION_BATCH_COLOR", targetMode: "DIM_SPAM" };
     }
     return { type: "ACTION_MOTOR" };
