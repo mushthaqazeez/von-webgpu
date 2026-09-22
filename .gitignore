@@ -24,7 +24,7 @@ models/
 Thumbs.db
 
 # Sub-projects
-mentat_repo/
+mentat/
 
 # Logs
 npm-debug.log*
