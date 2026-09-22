@@ -21,6 +21,13 @@ When building AI agents or smart web applications, **calling a 70B LLM like Clau
 
 ---
 
+## 👁️ Flagship Application: [Mentat](https://github.com/mushthaqazeez/mentat)
+
+Looking for a ready-to-use browser extension? Check out **[Mentat](https://github.com/mushthaqazeez/mentat)**:
+A high-speed cognitive browser pilot (Manifest V3) that brings sub-15ms voice and natural language motor control over any website using `von-webgpu`.
+
+---
+
 ## ⚡ Use Cases
 
 | Primitive | Use Case | Latency | Example |
