@@ -547,10 +547,14 @@
   async function executeType(el, text, pressEnter = false) {
     el.scrollIntoView({ behavior: "smooth", block: "center" });
     el.focus();
+    el.click();
+    await new Promise((r) => setTimeout(r, 80));
 
     if (el.isContentEditable || el.getAttribute("contenteditable") === "true" || el.getAttribute("role") === "textbox") {
       document.execCommand("selectAll", false, null);
       document.execCommand("insertText", false, text);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
     } else {
       const nativeSetter = Object.getOwnPropertyDescriptor(
         window.HTMLInputElement.prototype,
@@ -562,14 +566,26 @@
       } else {
         el.value = text;
       }
+      el.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
       el.dispatchEvent(new Event("input", { bubbles: true }));
       el.dispatchEvent(new Event("change", { bubbles: true }));
     }
 
     if (pressEnter) {
-      await new Promise((r) => setTimeout(r, 120));
-      el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
-      el.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
+      await new Promise((r) => setTimeout(r, 150));
+      const keyOpts = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true };
+      el.dispatchEvent(new KeyboardEvent("keydown", keyOpts));
+      el.dispatchEvent(new KeyboardEvent("keypress", keyOpts));
+      el.dispatchEvent(new KeyboardEvent("keyup", keyOpts));
+
+      // If wrapped in a form, trigger native form submission
+      if (el.form) {
+        try {
+          if (typeof el.form.requestSubmit === "function") {
+            el.form.requestSubmit();
+          }
+        } catch (_) {}
+      }
     }
   }
 
@@ -721,6 +737,28 @@
           if (match && match.winner && match.isActionable) {
             targetEl = match.winner.element;
           }
+        }
+      }
+
+      // 4. Smart Target Fallback for TYPE action
+      if (!targetEl && step.action === "TYPE") {
+        // A) If an input was focused by the preceding CLICK/WAIT_FOR, target it!
+        if (
+          document.activeElement &&
+          document.activeElement !== document.body &&
+          (document.activeElement.tagName === "INPUT" ||
+            document.activeElement.tagName === "TEXTAREA" ||
+            document.activeElement.isContentEditable)
+        ) {
+          targetEl = document.activeElement;
+        }
+
+        // B) Find the visible search or text input on screen
+        if (!targetEl) {
+          targetEl =
+            document.querySelector("input:focus, textarea:focus, [contenteditable]:focus") ||
+            document.querySelector("input[type='search'], input[placeholder*='search' i], input[aria-label*='search' i]") ||
+            document.querySelector("input[type='text'], input:not([type='hidden'])");
         }
       }
 
