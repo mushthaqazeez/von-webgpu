@@ -77,15 +77,36 @@
   const modelDotEl = overlayRoot.querySelector("#mentat-model-dot");
   const modelNameEl = overlayRoot.querySelector("#mentat-model-name");
 
-  function updateModelBadge() {
-    if (!window.MentatEngine || !modelBadgeEl) return;
+  async function updateModelBadge() {
+    if (!modelBadgeEl) return;
+
+    // 1. Prioritize System 2 Reasoning Cortex if configured
+    if (window.MentatSystemTwo) {
+      try {
+        const sys2 = await window.MentatSystemTwo.getConfig();
+        if (sys2 && (sys2.apiKey || sys2.provider === "ollama")) {
+          const providerLabel = sys2.provider === "groq" ? "Groq" : sys2.provider === "ollama" ? "Ollama" : "OpenAI";
+          const modelShort = (sys2.model || "").split("/").pop().replace(":latest", "");
+          modelNameEl.innerText = `● System 2: ${providerLabel} (${modelShort})`;
+          modelBadgeEl.title = `Prefrontal Reasoning Cortex Active\nProvider: ${sys2.provider}\nModel: ${sys2.model}\nEndpoint: ${sys2.endpoint}`;
+          modelBadgeEl.classList.remove("warming", "fallback");
+          modelBadgeEl.classList.add("system2-ready");
+          modelDotEl.classList.remove("warning", "danger");
+          modelDotEl.classList.add("sys2-active");
+          return;
+        }
+      } catch (_) {}
+    }
+
+    // 2. Check System 1 WebGPU Status
+    if (!window.MentatEngine) return;
     const status = window.MentatEngine.getModelStatus();
 
     modelNameEl.innerText = status.badgeText;
     modelBadgeEl.title = status.tooltip;
 
-    modelBadgeEl.classList.remove("warming", "fallback");
-    modelDotEl.classList.remove("warning", "danger");
+    modelBadgeEl.classList.remove("warming", "fallback", "system2-ready");
+    modelDotEl.classList.remove("warning", "danger", "sys2-active");
 
     if (status.state === "warming") {
       modelBadgeEl.classList.add("warming");
@@ -97,7 +118,7 @@
   }
 
   // Update badge status periodically
-  setInterval(updateModelBadge, 1500);
+  setInterval(updateModelBadge, 2000);
 
   // 2. Initialize Speech Recognition (Web Speech API)
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -160,7 +181,11 @@
       setTimeout(() => inputEl.focus(), 50);
       statusEl.innerText = "Scanning page DOM nodes...";
       const nodes = harvestInteractiveNodes();
-      statusEl.innerText = `${nodes.length} interactive candidates indexed in RAM.`;
+      if (nodes.length > 0) {
+        statusEl.innerText = `${nodes.length} interactive controls indexed. Ready for commands.`;
+      } else {
+        statusEl.innerText = "Ready. Speak or type any goal (e.g. 'search jobs', 'go back').";
+      }
     } else {
       hudEl.classList.remove("active");
       if (recognition && isListening) recognition.stop();
