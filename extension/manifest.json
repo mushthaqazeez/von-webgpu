@@ -25,7 +25,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["engine.js", "content.js"],
+      "js": ["system_two.js", "engine.js", "content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
     }
@@ -34,6 +34,7 @@
     {
       "resources": [
         "transformers.min.js",
+        "system_two.js",
         "*.wasm"
       ],
       "matches": ["<all_urls>"]

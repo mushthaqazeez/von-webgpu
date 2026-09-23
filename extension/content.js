@@ -456,7 +456,165 @@
     });
   }
 
-  // 10. Execute Mentat Command Pipeline
+  // 11. Atomic Motor Execution Dispatchers
+  function executeClick(el) {
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    const clickTarget = (el.matches && el.matches("tr.zA, div[role='row'].zA, tr[role='row']"))
+      ? (el.querySelector(".y6, span.bog, td:nth-child(5)") || el)
+      : el;
+    clickTarget.focus();
+    const opts = { bubbles: true, cancelable: true, view: window };
+    clickTarget.dispatchEvent(new PointerEvent("pointerdown", opts));
+    clickTarget.dispatchEvent(new MouseEvent("mousedown", opts));
+    clickTarget.dispatchEvent(new PointerEvent("pointerup", opts));
+    clickTarget.dispatchEvent(new MouseEvent("mouseup", opts));
+    clickTarget.click();
+  }
+
+  async function executeType(el, text, pressEnter = false) {
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.focus();
+
+    if (el.isContentEditable || el.getAttribute("contenteditable") === "true" || el.getAttribute("role") === "textbox") {
+      document.execCommand("selectAll", false, null);
+      document.execCommand("insertText", false, text);
+    } else {
+      const nativeSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value"
+      )?.set || Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
+
+      if (nativeSetter) {
+        nativeSetter.call(el, text);
+      } else {
+        el.value = text;
+      }
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+
+    if (pressEnter) {
+      await new Promise((r) => setTimeout(r, 120));
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
+      el.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true }));
+    }
+  }
+
+  function executeWaitFor(selector, timeoutMs = 3000) {
+    return new Promise((resolve) => {
+      const found = document.querySelector(selector);
+      if (found && found.offsetParent !== null) return resolve(found);
+
+      const t0 = performance.now();
+      const observer = new MutationObserver(() => {
+        const el = document.querySelector(selector);
+        if (el && el.offsetParent !== null) {
+          observer.disconnect();
+          resolve(el);
+        } else if (performance.now() - t0 > timeoutMs) {
+          observer.disconnect();
+          resolve(null);
+        }
+      });
+
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+      setTimeout(() => {
+        observer.disconnect();
+        resolve(document.querySelector(selector));
+      }, timeoutMs);
+    });
+  }
+
+  // 12. Muscle Memory Cache (chrome.storage.local)
+  function getMuscleMemory(key) {
+    return new Promise((resolve) => {
+      if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+        chrome.storage.local.get([key], (res) => resolve(res[key] || null));
+      } else {
+        resolve(null);
+      }
+    });
+  }
+
+  function saveMuscleMemory(key, plan) {
+    if (typeof chrome !== "undefined" && chrome.storage && chrome.storage.local) {
+      chrome.storage.local.set({ [key]: plan });
+    }
+  }
+
+  // 13. System 2 Playbook Executor
+  async function executePlaybook(playbook, pageState) {
+    const steps = playbook.steps || [];
+    statusEl.innerText = `Executing ${playbook.workflow || "workflow"} (${steps.length} steps)...`;
+
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      statusEl.innerText = `[${i + 1}/${steps.length}] ${step.desc || step.action}`;
+
+      if (step.action === "WAIT_FOR") {
+        if (step.selector) {
+          await executeWaitFor(step.selector, step.timeoutMs || 2500);
+        } else {
+          await new Promise((r) => setTimeout(r, 600));
+        }
+        continue;
+      }
+
+      if (step.action === "SCROLL") {
+        const topDelta = step.direction === "up" ? -window.innerHeight * 0.7 : window.innerHeight * 0.7;
+        window.scrollBy({ top: topDelta, behavior: "smooth" });
+        await new Promise((r) => setTimeout(r, 400));
+        continue;
+      }
+
+      if (step.action === "NAVIGATE") {
+        if (step.value === "back" || step.action === "back") window.history.back();
+        else if (step.value === "forward" || step.action === "forward") window.history.forward();
+        else if (step.value === "refresh" || step.action === "refresh") window.location.reload();
+        else if (step.value) window.location.href = step.value;
+        await new Promise((r) => setTimeout(r, 600));
+        continue;
+      }
+
+      // Motor Target Grounding (CLICK / TYPE)
+      const currentCandidates = harvestInteractiveNodes(detectPageState());
+      let targetEl = null;
+
+      if (step.selector) {
+        targetEl = document.querySelector(step.selector);
+      }
+
+      if (!targetEl && step.target) {
+        // System 1 WebGPU Affordance grounding
+        const match = await window.MentatEngine.groundCommandToElements(step.target, currentCandidates, detectPageState());
+        if (match && match.winner && match.isActionable) {
+          targetEl = match.winner.element;
+        }
+      }
+
+      if (!targetEl) {
+        console.warn(`[Mentat System 1] Could not locate target for step ${i + 1}:`, step);
+        continue;
+      }
+
+      drawTargetLock(targetEl, 0.95, 12);
+      await new Promise((r) => setTimeout(r, 220));
+
+      if (step.action === "CLICK") {
+        executeClick(targetEl);
+      } else if (step.action === "TYPE") {
+        await executeType(targetEl, step.value || "", step.pressEnter || false);
+      }
+
+      clearTargetLock();
+      await new Promise((r) => setTimeout(r, 350));
+    }
+
+    statusEl.innerText = `Completed "${playbook.workflow || "task"}".`;
+    setTimeout(() => toggleHud(false), 900);
+  }
+
+  // 14. Dual-Brain Execution Pipeline
   async function executeMentatCommand(command) {
     const engine = window.MentatEngine;
     if (!engine) {
@@ -464,10 +622,10 @@
       return;
     }
 
-    // Check dual-mode intent via Vector Intent Projections
-    const intent = await engine.detectCommandIntent(command);
+    const lower = command.trim().toLowerCase();
 
-    if (intent.type === "ACTION_RESET") {
+    // 1. Control Token: Clear / Reset
+    if (lower === "reset" || lower === "clear" || lower === "clear colors") {
       clearEmailColorGrading();
       statusEl.innerText = "Cleared Mentat color grading. Normal inbox restored.";
       latencyEl.innerText = "0ms";
@@ -475,93 +633,79 @@
       return;
     }
 
-    if (intent.type === "ACTION_NAV") {
-      const t0 = performance.now();
-      if (intent.action === "back") {
-        // Look for in-page back buttons (e.g. Gmail's "Back to Inbox", back buttons with aria-label or tooltip)
-        const backBtn = document.querySelector(
-          '[aria-label*="Back" i], [title*="Back" i], [data-tooltip*="Back" i], div[act="19"], button.back-btn, a.back-btn'
-        );
-        const latency = Number((performance.now() - t0).toFixed(2));
-        latencyEl.innerText = `${latency}ms`;
-
-        if (backBtn && backBtn.offsetParent !== null) {
-          drawTargetLock(backBtn, 0.98, latency);
-          statusEl.innerText = `Target Lock: Back Button (${backBtn.getAttribute("aria-label") || "Back"}). Navigating...`;
-          setTimeout(() => {
-            backBtn.click();
-            clearTargetLock();
-            toggleHud(false);
-          }, 350);
-          return;
-        }
-
-        // Fallback: Browser history back
-        statusEl.innerText = "Executing browser history back...";
-        setTimeout(() => {
+    // 2. Direct Reflex Check: Navigation
+    const navReflexes = ["go back", "back", "forward", "scroll down", "scroll up", "page down", "refresh", "reload"];
+    if (navReflexes.includes(lower)) {
+      const intent = await engine.detectCommandIntent(command);
+      if (intent.type === "ACTION_NAV") {
+        if (intent.action === "back") {
+          const backBtn = document.querySelector('[aria-label*="Back" i], [title*="Back" i], div[act="19"], button.back-btn');
+          if (backBtn && backBtn.offsetParent !== null) {
+            drawTargetLock(backBtn, 0.98, 5);
+            setTimeout(() => { backBtn.click(); clearTargetLock(); toggleHud(false); }, 300);
+            return;
+          }
           window.history.back();
           toggleHud(false);
-        }, 200);
-        return;
+          return;
+        }
+        if (intent.action === "scroll_down") { window.scrollBy({ top: window.innerHeight * 0.75, behavior: "smooth" }); toggleHud(false); return; }
+        if (intent.action === "scroll_up") { window.scrollBy({ top: -window.innerHeight * 0.75, behavior: "smooth" }); toggleHud(false); return; }
+        if (intent.action === "refresh") { window.location.reload(); return; }
       }
+    }
 
-      if (intent.action === "forward") {
-        statusEl.innerText = "Executing browser forward...";
-        setTimeout(() => {
-          window.history.forward();
-          toggleHud(false);
-        }, 200);
-        return;
-      }
-
-      if (intent.action === "refresh") {
-        statusEl.innerText = "Reloading page...";
-        setTimeout(() => window.location.reload(), 250);
-        return;
-      }
-
-      if (intent.action === "scroll_down") {
-        window.scrollBy({ top: window.innerHeight * 0.75, behavior: "smooth" });
-        statusEl.innerText = "Scrolled down.";
-        latencyEl.innerText = "2ms";
-        setTimeout(() => toggleHud(false), 600);
-        return;
-      }
-
-      if (intent.action === "scroll_up") {
-        window.scrollBy({ top: -window.innerHeight * 0.75, behavior: "smooth" });
-        statusEl.innerText = "Scrolled up.";
-        latencyEl.innerText = "2ms";
-        setTimeout(() => toggleHud(false), 600);
+    // 3. Direct Reflex Check: Batch Color
+    const hasVisualVerb = ["color", "colour", "dim", "highlight all", "filter", "shade"].some((v) => lower.includes(v));
+    if (hasVisualVerb && (lower.includes("mail") || lower.includes("email") || lower.includes("spam") || lower.includes("noise"))) {
+      const emails = harvestEmailRows();
+      if (emails.length > 0) {
+        statusEl.innerText = `Evaluating ${emails.length} emails with Neural Embeddings on WebGPU...`;
+        const batchResult = await engine.classifyEmailBatch(emails);
+        applyEmailColorGrading(batchResult);
+        latencyEl.innerText = `${batchResult.latencyMs}ms`;
+        statusEl.innerText = `Classified ${emails.length} emails (${batchResult.spamCount} dimmed, ${batchResult.importantCount} highlighted).`;
+        setTimeout(() => toggleHud(false), 1400);
         return;
       }
     }
 
-    if (intent.type === "ACTION_BATCH_COLOR") {
-      statusEl.innerText = "Harvesting inbox email list...";
-      const emails = harvestEmailRows();
-
-      if (emails.length === 0) {
-        statusEl.innerText = "No inbox list detected on this screen. Open Gmail inbox to color emails.";
-        return;
-      }
-
-      statusEl.innerText = `Evaluating ${emails.length} emails with Neural Embeddings on WebGPU...`;
-      const batchResult = await engine.classifyEmailBatch(emails);
-
-      applyEmailColorGrading(batchResult);
-
-      latencyEl.innerText = `${batchResult.latencyMs}ms`;
-      statusEl.innerText = `Neural classified ${emails.length} emails in ${batchResult.latencyMs}ms (${batchResult.spamCount} dimmed, ${batchResult.importantCount} highlighted).`;
-      setTimeout(() => toggleHud(false), 1400);
+    // 4. Muscle Memory Check (Reflex Compilation)
+    const memKey = `mentat_mem_${window.location.hostname}_${lower.replace(/\s+/g, "_")}`;
+    const cachedPlaybook = await getMuscleMemory(memKey);
+    if (cachedPlaybook) {
+      statusEl.innerText = `⚡ Replaying from Muscle Memory (${cachedPlaybook.workflow})...`;
+      latencyEl.innerText = "5ms";
+      await executePlaybook(cachedPlaybook, detectPageState());
       return;
     }
 
-    // Default: Motor Navigation Mode (Click / Type / Affordance Grounding)
+    // 5. Dual-Brain System 2 Reasoning Planner
     const pageState = detectPageState();
     const candidates = harvestInteractiveNodes(pageState);
-    statusEl.innerText = `Affordance grounding over ${candidates.length} candidates (${pageState.mode})...`;
 
+    // If System 2 is available, invoke reasoning cortex
+    if (window.MentatSystemTwo) {
+      const sys2Config = await window.MentatSystemTwo.getConfig();
+      if (sys2Config && (sys2Config.apiKey || sys2Config.provider === "ollama")) {
+        statusEl.innerText = `🧠 System 2 Planning (${sys2Config.provider})...`;
+        const planResult = await window.MentatSystemTwo.planWorkflow(command, {
+          title: document.title,
+          url: window.location.href,
+          ...pageState,
+        }, candidates);
+
+        if (planResult.success && planResult.plan && planResult.plan.steps && planResult.plan.steps.length > 0) {
+          latencyEl.innerText = `${planResult.latencyMs}ms`;
+          saveMuscleMemory(memKey, planResult.plan);
+          await executePlaybook(planResult.plan, pageState);
+          return;
+        }
+      }
+    }
+
+    // 6. System 1 Direct Affordance Motor Grounding (Fallback / Direct Reflex)
+    statusEl.innerText = `System 1 Affordance Grounding (${candidates.length} controls)...`;
     const result = await engine.groundCommandToElements(command, candidates, pageState);
     latencyEl.innerText = `${result.latencyMs}ms`;
 
@@ -572,35 +716,15 @@
 
     const targetEl = result.winner.element;
     drawTargetLock(targetEl, result.confidence, result.latencyMs);
-
     statusEl.innerText = `Target Lock: <${result.winner.tag}> "${result.winner.text.slice(0, 30)}"`;
 
-    targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
-
     setTimeout(() => {
-      const lower = command.toLowerCase();
-      if (lower.startsWith("type ") || lower.startsWith("fill ") || lower.startsWith("search ")) {
-        const textToType = command.replace(/^(type|fill|search)\s+/i, "");
-        targetEl.focus();
-        targetEl.value = textToType;
-        targetEl.dispatchEvent(new Event("input", { bubbles: true }));
-        targetEl.dispatchEvent(new Event("change", { bubbles: true }));
-        statusEl.innerText = `Typed: "${textToType}"`;
-      } else {
-        const clickTarget = (targetEl.matches && targetEl.matches("tr.zA, div[role='row'].zA, tr[role='row']"))
-          ? (targetEl.querySelector(".y6, span.bog, td:nth-child(5)") || targetEl)
-          : targetEl;
-        clickTarget.focus();
-        clickTarget.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, view: window }));
-        clickTarget.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, view: window }));
-        clickTarget.click();
-        statusEl.innerText = `Executed click on target.`;
-      }
-
+      executeClick(targetEl);
       setTimeout(() => {
+        clearTargetLock();
         toggleHud(false);
-      }, 900);
-    }, 350);
+      }, 600);
+    }, 300);
   }
 
   // Listen for messages from background script or popup

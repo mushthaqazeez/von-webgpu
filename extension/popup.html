@@ -165,6 +165,97 @@
       color: #cbd5e1;
       font-family: 'JetBrains Mono', monospace;
     }
+    .system2-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      margin-bottom: 14px;
+      overflow: hidden;
+    }
+
+    .system2-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      cursor: pointer;
+      background: rgba(255, 255, 255, 0.02);
+      transition: background 0.15s;
+    }
+
+    .system2-header:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .system2-body {
+      padding: 12px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .setting-label {
+      display: block;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      margin-bottom: 4px;
+      font-weight: 600;
+    }
+
+    .setting-input {
+      width: 100%;
+      background: rgba(10, 12, 20, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 6px;
+      padding: 6px 10px;
+      color: #fff;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+      margin-bottom: 10px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .setting-input:focus {
+      border-color: var(--cyan);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 6px;
+      padding: 6px 10px;
+      color: #cbd5e1;
+      font-weight: 600;
+      font-size: 0.75rem;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+    }
+
+    .status-pill {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      padding: 2px 6px;
+      border-radius: 999px;
+      font-weight: 600;
+    }
+
+    .pill-connected {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: #34d399;
+    }
+
+    .pill-offline {
+      background: rgba(148, 163, 184, 0.15);
+      border: 1px solid rgba(148, 163, 184, 0.3);
+      color: #94a3b8;
+    }
   </style>
 </head>
 <body>
@@ -174,7 +265,7 @@
       <div class="brand-icon"><div class="brand-dot"></div></div>
       <span>Mentat</span>
     </div>
-    <span class="status-badge">System 1 Ready</span>
+    <span class="status-badge">System 1 + 2</span>
   </div>
 
   <p class="tagline">"It is by will alone I set my mind in motion."</p>
@@ -186,12 +277,50 @@
     <kbd style="background: rgba(0,0,0,0.2); border-color: rgba(0,0,0,0.3); color: #0f172a;">Alt+M</kbd>
   </button>
 
+  <!-- System 2 Prefrontal Reasoning Cortex Settings -->
+  <div class="system2-card">
+    <div class="system2-header" id="system2-toggle">
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <span>🧠</span>
+        <span style="font-weight: 700; font-size: 0.8rem; color: #cbd5e1;">System 2 Reasoning Cortex</span>
+      </div>
+      <span id="sys2-status-pill" class="status-pill pill-offline">Checking...</span>
+    </div>
+
+    <div class="system2-body" id="system2-body">
+      <label class="setting-label">Provider</label>
+      <select id="sys2-provider" class="setting-input">
+        <option value="ollama">Local Ollama (100% Free & Local)</option>
+        <option value="groq">Groq (Ultra-Fast 200ms)</option>
+        <option value="openai">OpenAI (GPT-4o / mini)</option>
+        <option value="anthropic">Anthropic Claude</option>
+      </select>
+
+      <label class="setting-label">Endpoint URL</label>
+      <input type="text" id="sys2-endpoint" class="setting-input" value="http://localhost:11434/v1" />
+
+      <label class="setting-label">Model Name</label>
+      <input type="text" id="sys2-model" class="setting-input" value="qwen2.5:3b" />
+
+      <div id="sys2-key-container" style="display: none;">
+        <label class="setting-label">API Key</label>
+        <input type="password" id="sys2-apikey" class="setting-input" placeholder="sk-..." />
+      </div>
+
+      <div style="display: flex; gap: 8px; margin-top: 4px;">
+        <button id="sys2-btn-test" class="btn-secondary" style="flex: 1;">Ping Test</button>
+        <button id="sys2-btn-save" class="btn-secondary" style="flex: 1; background: rgba(6, 182, 212, 0.15); border-color: #06b6d4; color: #38bdf8;">Save Config</button>
+      </div>
+      <div id="sys2-feedback" style="font-size: 0.72rem; margin-top: 8px; color: #94a3b8; font-family: 'JetBrains Mono', monospace;"></div>
+    </div>
+  </div>
+
   <div class="section-title">Try Spoken or Typed Commands:</div>
   <div class="quick-list">
+    <div class="quick-chip">"Compose email to team about deployment"</div>
     <div class="quick-chip">"Colour non important mails or spam"</div>
-    <div class="quick-chip">"Click on repositories"</div>
+    <div class="quick-chip">"Go back"</div>
     <div class="quick-chip">"Search for mechanical keyboards"</div>
-    <div class="quick-chip">"Open billing and subscription"</div>
     <div class="quick-chip">"Reset inbox colors"</div>
   </div>
 
@@ -200,6 +329,7 @@
     <kbd>Alt + M</kbd>
   </div>
 
+  <script src="system_two.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

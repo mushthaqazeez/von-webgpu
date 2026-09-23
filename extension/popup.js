@@ -85,3 +85,108 @@ document.querySelectorAll(".quick-chip").forEach((chip) => {
     triggerMentatInActiveTab(text);
   });
 });
+
+// System 2 Reasoning Cortex Controller
+const sys2Toggle = document.getElementById("system2-toggle");
+const sys2Body = document.getElementById("system2-body");
+const sys2StatusPill = document.getElementById("sys2-status-pill");
+const sys2Provider = document.getElementById("sys2-provider");
+const sys2Endpoint = document.getElementById("sys2-endpoint");
+const sys2Model = document.getElementById("sys2-model");
+const sys2ApiKey = document.getElementById("sys2-apikey");
+const sys2KeyContainer = document.getElementById("sys2-key-container");
+const sys2BtnTest = document.getElementById("sys2-btn-test");
+const sys2BtnSave = document.getElementById("sys2-btn-save");
+const sys2Feedback = document.getElementById("sys2-feedback");
+
+// Provider default templates
+const PROVIDER_DEFAULTS = {
+  ollama: { endpoint: "http://localhost:11434/v1", model: "qwen2.5:3b", needsKey: false },
+  groq: { endpoint: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile", needsKey: true },
+  openai: { endpoint: "https://api.openai.com/v1", model: "gpt-4o-mini", needsKey: true },
+  anthropic: { endpoint: "https://api.anthropic.com/v1", model: "claude-3-5-haiku-20241022", needsKey: true },
+};
+
+async function loadSystem2Config() {
+  if (!window.MentatSystemTwo) return;
+  const config = await window.MentatSystemTwo.getConfig();
+
+  sys2Provider.value = config.provider || "ollama";
+  sys2Endpoint.value = config.endpoint || PROVIDER_DEFAULTS[config.provider]?.endpoint || "";
+  sys2Model.value = config.model || PROVIDER_DEFAULTS[config.provider]?.model || "";
+  sys2ApiKey.value = config.apiKey || "";
+
+  updateKeyVisibility(config.provider);
+  checkSystem2Health();
+}
+
+function updateKeyVisibility(provider) {
+  const needsKey = PROVIDER_DEFAULTS[provider]?.needsKey ?? true;
+  sys2KeyContainer.style.display = needsKey ? "block" : "none";
+}
+
+sys2Provider.addEventListener("change", () => {
+  const p = sys2Provider.value;
+  const def = PROVIDER_DEFAULTS[p];
+  if (def) {
+    sys2Endpoint.value = def.endpoint;
+    sys2Model.value = def.model;
+  }
+  updateKeyVisibility(p);
+});
+
+async function checkSystem2Health() {
+  if (!window.MentatSystemTwo) return;
+  sys2StatusPill.className = "status-pill pill-offline";
+  sys2StatusPill.innerText = "Checking...";
+
+  const test = await window.MentatSystemTwo.testConnection();
+  if (test.success) {
+    sys2StatusPill.className = "status-pill pill-connected";
+    sys2StatusPill.innerText = `Online (${test.latencyMs}ms)`;
+  } else {
+    sys2StatusPill.className = "status-pill pill-offline";
+    sys2StatusPill.innerText = "Offline";
+  }
+}
+
+sys2BtnTest.addEventListener("click", async () => {
+  sys2Feedback.innerText = "Testing connection...";
+  sys2Feedback.style.color = "#94a3b8";
+
+  const tempConfig = {
+    provider: sys2Provider.value,
+    endpoint: sys2Endpoint.value.trim(),
+    model: sys2Model.value.trim(),
+    apiKey: sys2ApiKey.value.trim(),
+  };
+
+  const test = await window.MentatSystemTwo.testConnection(tempConfig);
+  if (test.success) {
+    sys2Feedback.innerText = `✓ Reachable! Response in ${test.latencyMs}ms.`;
+    sys2Feedback.style.color = "#34d399";
+    sys2StatusPill.className = "status-pill pill-connected";
+    sys2StatusPill.innerText = `Online (${test.latencyMs}ms)`;
+  } else {
+    sys2Feedback.innerText = `✗ Failed: ${test.error}`;
+    sys2Feedback.style.color = "#f87171";
+    sys2StatusPill.className = "status-pill pill-offline";
+    sys2StatusPill.innerText = "Offline";
+  }
+});
+
+sys2BtnSave.addEventListener("click", async () => {
+  const newConfig = {
+    provider: sys2Provider.value,
+    endpoint: sys2Endpoint.value.trim(),
+    model: sys2Model.value.trim(),
+    apiKey: sys2ApiKey.value.trim(),
+  };
+
+  await window.MentatSystemTwo.saveConfig(newConfig);
+  sys2Feedback.innerText = "✓ System 2 configuration saved!";
+  sys2Feedback.style.color = "#38bdf8";
+  checkSystem2Health();
+});
+
+loadSystem2Config();
