@@ -123,43 +123,79 @@ window.MentatSystemTwo = (() => {
     const config = await getConfig();
     const t0 = performance.now();
 
-    // Distill candidates to salient affordance signatures for System 2 context
-    const affordanceCatalog = candidates
-      .slice(0, 25)
-      .map((c, i) => `${i + 1}. ${c.affordanceStr || c.text}`)
-      .join("\n");
+    // Categorize candidates for rich prefrontal reasoning context
+    const searchAffordances = [];
+    const sidebarAffordances = [];
+    const actionAffordances = [];
+    const generalAffordances = [];
 
-    const systemPrompt = `You are JARVIS System 2 (Prefrontal Reasoning Cortex).
-You decompose user browser commands into a sequence of atomic motor actions for System 1 (the on-device WebGPU motor engine).
-System 1 supports these atomic actions:
-- CLICK: click an element by semantic description
-- TYPE: focus an element, fill in text, optionally pressEnter: true
-- SCROLL: scroll the viewport (direction: "down" | "up", amount: number)
-- WAIT_FOR: wait for a selector/modal to appear (timeoutMs: number)
-- NAVIGATE: navigate browser (action: "back" | "forward" | "refresh" | url)
-- COLOR_FILTER: apply batch visual highlighting/dimming (filterMode: "DIM_SPAM" | "HIGHLIGHT_IMPORTANT")
+    candidates.slice(0, 60).forEach((c) => {
+      const line = `- ${c.affordanceStr || c.text}`;
+      if (c.affordanceAction === "search_control" || (c.text && c.text.toLowerCase().includes("search"))) {
+        searchAffordances.push(line);
+      } else if (c.location === "left_sidebar" || c.affordanceAction === "sidebar_history_item") {
+        sidebarAffordances.push(line);
+      } else if (c.role === "button" || c.affordanceAction === "action_button" || c.affordanceAction === "create_action") {
+        actionAffordances.push(line);
+      } else {
+        generalAffordances.push(line);
+      }
+    });
+
+    const affordanceCatalog = [
+      "=== SEARCH & FILTER CONTROLS ===",
+      searchAffordances.length ? searchAffordances.join("\n") : "(none detected)",
+      "=== SIDEBAR HISTORY & RECENTS ===",
+      sidebarAffordances.length ? sidebarAffordances.join("\n") : "(none detected)",
+      "=== ACTIONS & CONTROLS ===",
+      actionAffordances.length ? actionAffordances.join("\n") : "(none detected)",
+      "=== VISIBLE PAGE LINKS & NODES ===",
+      generalAffordances.length ? generalAffordances.slice(0, 20).join("\n") : "(none detected)",
+    ].join("\n");
+
+    const systemPrompt = `You are JARVIS System 2 (Prefrontal Reasoning Cortex), an elite browser automation strategist.
+You decompose user commands into an executable sequence of atomic motor actions for System 1 (the on-device motor engine).
+
+SYSTEM 1 MOTOR PRIMITIVES:
+- CLICK: { "action": "CLICK", "target": "semantic target label or exact visible text" }
+- TYPE: { "action": "TYPE", "target": "input element", "value": "text to type", "pressEnter": true | false }
+- WAIT_FOR: { "action": "WAIT_FOR", "timeoutMs": 400, "desc": "wait for modal/results" }
+- SCROLL: { "action": "SCROLL", "direction": "down" | "up" }
+- NAVIGATE: { "action": "NAVIGATE", "value": "back" | "forward" | "refresh" | "url" }
+- COLOR_FILTER: { "action": "COLOR_FILTER", "filterMode": "DIM_SPAM" | "HIGHLIGHT_IMPORTANT" }
+
+WEB ERGONOMICS & PLAYBOOK RULES:
+1. SEARCH-FIRST RULE: When a user wants to find, locate, or open a specific chat, conversation, contact, email, or item:
+   - If a Search control exists (e.g. 'Search chats', 'Search', magnifier icon):
+     Step 1: CLICK the search button/input.
+     Step 2: WAIT_FOR 300ms for input focus or modal to settle.
+     Step 3: TYPE the keyword into the search input with "pressEnter": true.
+     Step 4: WAIT_FOR 400ms for search results to appear.
+   - If the exact or closely related item is ALREADY visible in SIDEBAR HISTORY or RECENTS (e.g. 'Mahindra BE6', 'Bolero'), simply CLICK it directly!
+2. EXACT TARGET MATCHING: For "target", use the exact button/link text or label found in the affordance catalog (e.g. "Search chats", "New chat", "Capital Wars").
+3. CONCISE DESCRIPTIONS: Provide clear human-readable "desc" for each step so the user sees live progress on their screen.
 
 Return ONLY valid JSON matching this schema:
 {
-  "thought": "brief reasoning",
+  "thought": "brief reasoning explaining strategy",
   "workflow": "concise_name",
   "steps": [
     {
       "action": "CLICK" | "TYPE" | "SCROLL" | "WAIT_FOR" | "NAVIGATE" | "COLOR_FILTER",
-      "target": "semantic target description to match against DOM affordance",
-      "value": "text to type if action is TYPE",
+      "target": "target element label",
+      "value": "string if TYPE or NAVIGATE",
       "pressEnter": true | false,
       "direction": "down" | "up",
-      "selector": "CSS selector to wait for if WAIT_FOR",
-      "desc": "human readable status update for HUD"
+      "timeoutMs": 300,
+      "desc": "human readable status for HUD (e.g. 'Click Search chats', 'Type bolero')"
     }
   ]
 }`;
 
     const userMessage = `Current Web View:
 - Page Title: "${pageContext.title || document.title}"
-- State: ${pageContext.mode || "general"} (${pageContext.description || "browsing"})
-- Visible Key Screen Affordances:
+- State: ${pageContext.mode || "general"}
+- Available Screen Controls & History:
 ${affordanceCatalog}
 
 User Goal: "${userPrompt}"

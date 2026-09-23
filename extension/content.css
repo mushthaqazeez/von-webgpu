@@ -253,6 +253,88 @@
   color: #cbd5e1;
 }
 
+/* Execution Plan Trace */
+.mentat-step-trace {
+  margin-top: 12px;
+  background: rgba(10, 14, 26, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 180px;
+  overflow-y: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+}
+
+.mentat-step-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #94a3b8;
+  transition: all 0.2s ease;
+}
+
+.mentat-step-item.pending {
+  color: #64748b;
+}
+
+.mentat-step-item.running {
+  color: #38bdf8;
+  font-weight: 600;
+}
+
+.mentat-step-item.success {
+  color: #34d399;
+}
+
+.mentat-step-item.failed {
+  color: #f87171;
+}
+
+.mentat-step-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  flex-shrink: 0;
+}
+
+.mentat-step-item.pending .mentat-step-icon {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #64748b;
+}
+
+.mentat-step-item.running .mentat-step-icon {
+  background: rgba(6, 182, 212, 0.2);
+  border: 1px solid #06b6d4;
+  color: #38bdf8;
+  animation: mentat-spin 1.2s linear infinite;
+}
+
+.mentat-step-item.success .mentat-step-icon {
+  background: rgba(16, 185, 129, 0.2);
+  border: 1px solid #10b981;
+  color: #34d399;
+}
+
+.mentat-step-item.failed .mentat-step-icon {
+  background: rgba(239, 68, 68, 0.2);
+  border: 1px solid #ef4444;
+  color: #f87171;
+}
+
+@keyframes mentat-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* Target Cybernetic Lock Ring */
 .mentat-target-lock {
   position: absolute;

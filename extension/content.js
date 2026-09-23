@@ -47,6 +47,7 @@
           </svg>
         </button>
       </div>
+      <div id="mentat-step-trace" class="mentat-step-trace" style="display: none;"></div>
 
       <div class="mentat-feedback-box">
         <span id="mentat-status-text">It is by will alone I set my mind in motion.</span>
@@ -76,6 +77,7 @@
   const modelBadgeEl = overlayRoot.querySelector("#mentat-model-badge");
   const modelDotEl = overlayRoot.querySelector("#mentat-model-dot");
   const modelNameEl = overlayRoot.querySelector("#mentat-model-name");
+  const stepTraceEl = overlayRoot.querySelector("#mentat-step-trace");
 
   async function updateModelBadge() {
     if (!modelBadgeEl) return;
@@ -178,6 +180,11 @@
     if (isHudVisible) {
       hudEl.classList.add("active");
       updateModelBadge();
+      statusEl.style.color = "#94a3b8";
+      if (stepTraceEl) {
+        stepTraceEl.style.display = "none";
+        stepTraceEl.innerHTML = "";
+      }
       setTimeout(() => inputEl.focus(), 50);
       statusEl.innerText = "Scanning page DOM nodes...";
       const nodes = harvestInteractiveNodes();
@@ -190,6 +197,10 @@
       hudEl.classList.remove("active");
       if (recognition && isListening) recognition.stop();
       clearTargetLock();
+      if (stepTraceEl) {
+        stepTraceEl.style.display = "none";
+        stepTraceEl.innerHTML = "";
+      }
     }
   }
 
@@ -293,12 +304,16 @@
     return "main_container";
   }
 
-  // 5. DOM Interactive Node Harvester with Affordance Synthesizer
+  // 5. DOM Interactive Node Harvester with Topological Affordance Synthesizer
   function harvestInteractiveNodes(pageState = detectPageState()) {
     const selector = "a, button, input, select, textarea, [role='button'], [role='link'], [role='tab'], [role='menuitem'], [role='option'], [role='row'], tr.zA, tr[role='row'], .artdeco-button, [onclick], [tabindex]";
     const rawElements = Array.from(document.querySelectorAll(selector));
 
-    const candidates = [];
+    const searchPool = [];
+    const sidebarPool = [];
+    const actionPool = [];
+    const generalPool = [];
+
     for (const el of rawElements) {
       try {
         // Visibility check
@@ -335,14 +350,18 @@
         // Determine affordance action tag
         let affordanceAction = "interaction";
         const fullLabel = `${text} ${ariaLabel} ${title} ${placeholder}`.toLowerCase();
+        const isSearch = icon === "search" || role === "searchbox" || fullLabel.includes("search") || placeholder.toLowerCase().includes("search");
+
         if (icon === "arrow_left" || fullLabel.includes("back") || ariaLabel.toLowerCase().includes("back")) {
           affordanceAction = "navigate_back";
-        } else if (icon === "compose" || fullLabel.includes("compose") || fullLabel.includes("new mail") || fullLabel.includes("apply")) {
-          affordanceAction = "compose_or_action";
-        } else if (icon === "search" || role === "searchbox" || fullLabel.includes("search")) {
-          affordanceAction = "search";
+        } else if (icon === "compose" || fullLabel.includes("compose") || fullLabel.includes("new chat") || fullLabel.includes("new mail") || fullLabel.includes("create")) {
+          affordanceAction = "create_action";
+        } else if (isSearch) {
+          affordanceAction = "search_control";
         } else if (isEmailRow) {
           affordanceAction = "read_email_row";
+        } else if (location === "left_sidebar") {
+          affordanceAction = "sidebar_history_item";
         } else if (role === "button" || el.tagName === "BUTTON") {
           affordanceAction = "action_button";
         }
@@ -350,7 +369,7 @@
         const cleanLabel = (ariaLabel || title || placeholder || text).slice(0, 70).replace(/[\r\n\t]+/g, " ");
         const affordanceStr = `[AFFORDANCE: ${affordanceAction} | ROLE: ${role} | LOCATION: ${location} | LABEL: '${cleanLabel}' | ICON: ${icon}]`;
 
-        candidates.push({
+        const cand = {
           element: el,
           tag: el.tagName,
           text: text.slice(0, 140),
@@ -365,16 +384,31 @@
           location,
           affordanceAction,
           affordanceStr,
-        });
+        };
 
-        // Cap to the top 45 most prominent screen controls to guarantee sub-20ms inference
-        if (candidates.length >= 45) break;
+        if (isSearch) {
+          searchPool.push(cand);
+        } else if (location === "left_sidebar" || affordanceAction === "sidebar_history_item") {
+          sidebarPool.push(cand);
+        } else if (affordanceAction === "create_action" || role === "button" || el.tagName === "BUTTON") {
+          actionPool.push(cand);
+        } else {
+          generalPool.push(cand);
+        }
       } catch (err) {
         // Gracefully ignore single rogue node errors and proceed
       }
     }
 
-    return candidates;
+    // Merge pools: guarantee priority slots for Search and Sidebar history
+    const merged = [
+      ...searchPool.slice(0, 10),
+      ...actionPool.slice(0, 15),
+      ...sidebarPool.slice(0, 30),
+      ...generalPool.slice(0, 15),
+    ];
+
+    return merged.slice(0, 60);
   }
 
   // 6. Draw Cybernetic Target Lock
@@ -581,20 +615,44 @@
     }
   }
 
-  // 13. System 2 Playbook Executor
+  // 13. System 2 Playbook Executor with Live HUD Trace
   async function executePlaybook(playbook, pageState) {
     const steps = playbook.steps || [];
-    statusEl.innerText = `Executing ${playbook.workflow || "workflow"} (${steps.length} steps)...`;
+    statusEl.innerText = `Executing: ${playbook.thought || playbook.workflow || "workflow"}`;
+
+    if (stepTraceEl) {
+      stepTraceEl.style.display = "flex";
+      stepTraceEl.innerHTML = steps.map((s, idx) => `
+        <div class="mentat-step-item pending" id="mentat-step-${idx}">
+          <span class="mentat-step-icon">${idx + 1}</span>
+          <span class="mentat-step-desc">${s.desc || `${s.action} ${s.target || s.value || ""}`}</span>
+        </div>
+      `).join("");
+    }
+
+    let allSucceeded = true;
 
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i];
+      const stepEl = stepTraceEl ? stepTraceEl.querySelector(`#mentat-step-${i}`) : null;
+      if (stepEl) {
+        stepEl.className = "mentat-step-item running";
+        const icon = stepEl.querySelector(".mentat-step-icon");
+        if (icon) icon.innerText = "⏳";
+      }
+
       statusEl.innerText = `[${i + 1}/${steps.length}] ${step.desc || step.action}`;
 
       if (step.action === "WAIT_FOR") {
         if (step.selector) {
-          await executeWaitFor(step.selector, step.timeoutMs || 2500);
+          await executeWaitFor(step.selector, step.timeoutMs || 1500);
         } else {
-          await new Promise((r) => setTimeout(r, 600));
+          await new Promise((r) => setTimeout(r, step.timeoutMs || 400));
+        }
+        if (stepEl) {
+          stepEl.className = "mentat-step-item success";
+          const icon = stepEl.querySelector(".mentat-step-icon");
+          if (icon) icon.innerText = "✓";
         }
         continue;
       }
@@ -603,6 +661,11 @@
         const topDelta = step.direction === "up" ? -window.innerHeight * 0.7 : window.innerHeight * 0.7;
         window.scrollBy({ top: topDelta, behavior: "smooth" });
         await new Promise((r) => setTimeout(r, 400));
+        if (stepEl) {
+          stepEl.className = "mentat-step-item success";
+          const icon = stepEl.querySelector(".mentat-step-icon");
+          if (icon) icon.innerText = "✓";
+        }
         continue;
       }
 
@@ -612,6 +675,11 @@
         else if (step.value === "refresh" || step.action === "refresh") window.location.reload();
         else if (step.value) window.location.href = step.value;
         await new Promise((r) => setTimeout(r, 600));
+        if (stepEl) {
+          stepEl.className = "mentat-step-item success";
+          const icon = stepEl.querySelector(".mentat-step-icon");
+          if (icon) icon.innerText = "✓";
+        }
         continue;
       }
 
@@ -624,15 +692,48 @@
       }
 
       if (!targetEl && step.target) {
-        // System 1 WebGPU Affordance grounding
-        const match = await window.MentatEngine.groundCommandToElements(step.target, currentCandidates, detectPageState());
-        if (match && match.winner && match.isActionable) {
-          targetEl = match.winner.element;
+        const targetLower = step.target.toLowerCase();
+
+        // 1. Direct text/label matching against harvested affordance nodes
+        for (const c of currentCandidates) {
+          const cText = (c.text || c.ariaLabel || c.placeholder || "").toLowerCase();
+          if (cText && (cText === targetLower || cText.includes(targetLower) || targetLower.includes(cText))) {
+            targetEl = c.element;
+            break;
+          }
+        }
+
+        // 2. Direct DOM search for matching buttons/links on the page
+        if (!targetEl) {
+          const domButtons = Array.from(document.querySelectorAll("button, a, input, [role='button']"));
+          for (const btn of domButtons) {
+            const btnText = (btn.innerText || btn.getAttribute("aria-label") || btn.getAttribute("placeholder") || "").toLowerCase().trim();
+            if (btnText && (btnText === targetLower || btnText.includes(targetLower) || targetLower.includes(btnText))) {
+              targetEl = btn;
+              break;
+            }
+          }
+        }
+
+        // 3. System 1 Vector / Semantic Affordance Grounding (WebGPU)
+        if (!targetEl) {
+          const match = await window.MentatEngine.groundCommandToElements(step.target, currentCandidates, detectPageState());
+          if (match && match.winner && match.isActionable) {
+            targetEl = match.winner.element;
+          }
         }
       }
 
       if (!targetEl) {
-        console.warn(`[Mentat System 1] Could not locate target for step ${i + 1}:`, step);
+        console.warn(`[Mentat System 1] Target not located for step ${i + 1}:`, step);
+        if (stepEl) {
+          stepEl.className = "mentat-step-item failed";
+          const icon = stepEl.querySelector(".mentat-step-icon");
+          if (icon) icon.innerText = "✗";
+          const desc = stepEl.querySelector(".mentat-step-desc");
+          if (desc) desc.innerText += " (Not found on screen)";
+        }
+        allSucceeded = false;
         continue;
       }
 
@@ -646,11 +747,21 @@
       }
 
       clearTargetLock();
+      if (stepEl) {
+        stepEl.className = "mentat-step-item success";
+        const icon = stepEl.querySelector(".mentat-step-icon");
+        if (icon) icon.innerText = "✓";
+      }
       await new Promise((r) => setTimeout(r, 350));
     }
 
-    statusEl.innerText = `Completed "${playbook.workflow || "task"}".`;
-    setTimeout(() => toggleHud(false), 900);
+    if (allSucceeded) {
+      statusEl.innerText = `✓ Finished "${playbook.workflow || "workflow"}". Press Esc to dismiss.`;
+      statusEl.style.color = "#34d399";
+    } else {
+      statusEl.innerText = `⚠️ Finished with missing steps. See trace above. Press Esc to dismiss.`;
+      statusEl.style.color = "#fbbf24";
+    }
   }
 
   // 14. Dual-Brain Execution Pipeline
