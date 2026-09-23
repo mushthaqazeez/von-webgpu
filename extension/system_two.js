@@ -81,8 +81,33 @@ window.MentatSystemTwo = (() => {
       });
 
       if (!resp.ok) {
-        const errText = await resp.text().catch(() => resp.statusText);
-        throw new Error(`HTTP ${resp.status}: ${errText.slice(0, 100)}`);
+        const errRaw = await resp.text().catch(() => resp.statusText);
+        let errMsg = `HTTP ${resp.status}`;
+        try {
+          const parsed = JSON.parse(errRaw);
+          if (parsed.error && parsed.error.message) {
+            errMsg += `: ${parsed.error.message}`;
+          } else {
+            errMsg += `: ${errRaw.slice(0, 100)}`;
+          }
+        } catch (_) {
+          errMsg += `: ${errRaw.slice(0, 100)}`;
+        }
+
+        // On 404 or access error, attempt to query /models to discover what models the key has access to
+        if (resp.status === 404 || resp.status === 400) {
+          try {
+            const modelsResp = await fetch(`${baseUrl}/models`, { headers });
+            if (modelsResp.ok) {
+              const modelsData = await modelsResp.json();
+              const avail = (modelsData.data || []).map((m) => m.id).filter((id) => !id.includes("whisper") && !id.includes("embed")).slice(0, 5);
+              if (avail.length > 0) {
+                errMsg += ` | Try one of: ${avail.join(", ")}`;
+              }
+            }
+          } catch (_) {}
+        }
+        throw new Error(errMsg);
       }
 
       return { success: true, latencyMs: Number((performance.now() - t0).toFixed(0)), provider: config.provider };

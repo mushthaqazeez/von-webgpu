@@ -102,7 +102,7 @@ const sys2Feedback = document.getElementById("sys2-feedback");
 // Provider default templates
 const PROVIDER_DEFAULTS = {
   ollama: { endpoint: "http://localhost:11434/v1", model: "qwen2.5:3b", needsKey: false },
-  groq: { endpoint: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile", needsKey: true },
+  groq: { endpoint: "https://api.groq.com/openai/v1", model: "llama-3.1-8b-instant", needsKey: true },
   openai: { endpoint: "https://api.openai.com/v1", model: "gpt-4o-mini", needsKey: true },
   anthropic: { endpoint: "https://api.anthropic.com/v1", model: "claude-3-5-haiku-20241022", needsKey: true },
 };
@@ -154,11 +154,26 @@ sys2BtnTest.addEventListener("click", async () => {
   sys2Feedback.innerText = "Testing connection...";
   sys2Feedback.style.color = "#94a3b8";
 
+  const keyVal = sys2ApiKey.value.trim();
+  const providerVal = sys2Provider.value;
+
+  // Helpful key prefix check
+  if (providerVal === "groq" && keyVal.startsWith("sk-") && !keyVal.startsWith("gsk_")) {
+    sys2Feedback.innerText = "⚠️ That key starts with 'sk-', which is an OpenAI key. If you have an OpenAI key, switch Provider to 'OpenAI'. For Groq, keys start with 'gsk_'.";
+    sys2Feedback.style.color = "#fbbf24";
+    return;
+  }
+  if (providerVal === "openai" && keyVal.startsWith("gsk_")) {
+    sys2Feedback.innerText = "⚠️ That key starts with 'gsk_', which is a Groq key. Switch Provider to 'Groq'.";
+    sys2Feedback.style.color = "#fbbf24";
+    return;
+  }
+
   const tempConfig = {
-    provider: sys2Provider.value,
+    provider: providerVal,
     endpoint: sys2Endpoint.value.trim(),
     model: sys2Model.value.trim(),
-    apiKey: sys2ApiKey.value.trim(),
+    apiKey: keyVal,
   };
 
   const test = await window.MentatSystemTwo.testConnection(tempConfig);
