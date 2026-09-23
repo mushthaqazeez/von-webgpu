@@ -1,6 +1,11 @@
 // content.js — Mentat Cognitive Browser Pilot (Content Script)
 
 (() => {
+  // Prevent executing in sub-iframes or tracker iframes
+  if (window.self !== window.top) {
+    return;
+  }
+
   if (window.__mentat_pilot_injected) {
     return;
   }
@@ -205,7 +210,12 @@
   // 4c. Visual Icon Classifier (Approach A: Visual Semantics)
   function classifyVisualIcon(el) {
     const htmlStr = (el.innerHTML || "").toLowerCase();
-    const classStr = (el.className || "").toLowerCase();
+    let classStr = "";
+    if (typeof el.className === "string") {
+      classStr = el.className.toLowerCase();
+    } else if (el.className && typeof el.className.baseVal === "string") {
+      classStr = el.className.baseVal.toLowerCase();
+    }
     const aria = (el.getAttribute("aria-label") || "").toLowerCase();
     const tooltip = (el.getAttribute("data-tooltip") || "").toLowerCase();
     const combined = `${classStr} ${aria} ${tooltip}`;
@@ -237,8 +247,8 @@
       return "trash";
     }
 
-    // 5. Compose / Add
-    if (combined.includes("compose") || combined.includes("create") || combined.includes("add") || htmlStr.includes("m19 13h-6v6")) {
+    // 5. Compose / Add / Apply
+    if (combined.includes("compose") || combined.includes("create") || combined.includes("add") || combined.includes("apply") || htmlStr.includes("m19 13h-6v6")) {
       return "compose";
     }
 
@@ -260,79 +270,83 @@
 
   // 5. DOM Interactive Node Harvester with Affordance Synthesizer
   function harvestInteractiveNodes(pageState = detectPageState()) {
-    const selector = "a, button, input, select, textarea, [role='button'], [role='link'], [role='row'], tr.zA, tr[role='row'], [onclick], [tabindex]";
+    const selector = "a, button, input, select, textarea, [role='button'], [role='link'], [role='tab'], [role='menuitem'], [role='option'], [role='row'], tr.zA, tr[role='row'], .artdeco-button, [onclick], [tabindex]";
     const rawElements = Array.from(document.querySelectorAll(selector));
 
     const candidates = [];
     for (const el of rawElements) {
-      // Visibility check
-      const rect = el.getBoundingClientRect();
-      const style = window.getComputedStyle(el);
-      if (
-        rect.width === 0 ||
-        rect.height === 0 ||
-        style.display === "none" ||
-        style.visibility === "hidden" ||
-        style.opacity === "0"
-      ) {
-        continue;
+      try {
+        // Visibility check
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) continue;
+
+        const style = window.getComputedStyle(el);
+        if (
+          style.display === "none" ||
+          style.visibility === "hidden" ||
+          style.opacity === "0"
+        ) {
+          continue;
+        }
+
+        // Ignore elements inside our own HUD
+        if (overlayRoot && overlayRoot.contains(el)) continue;
+
+        // Filter out micro-elements nested inside email rows to prevent candidate flooding (393 -> 25)
+        const parentRow = el.closest("tr.zA, div[role='row'].zA");
+        if (parentRow && parentRow !== el) continue;
+
+        const isEmailRow = el.matches ? (el.matches("tr.zA, div[role='row'].zA, tr[role='row']") || el.classList.contains("zA")) : false;
+        const text = (el.innerText || el.textContent || "").trim();
+        const ariaLabel = el.getAttribute("aria-label") || "";
+        const placeholder = el.getAttribute("placeholder") || "";
+        const name = el.getAttribute("name") || "";
+        const title = el.getAttribute("title") || "";
+        const role = el.getAttribute("role") || el.tagName.toLowerCase();
+
+        const icon = classifyVisualIcon(el);
+        const location = classifySpatialTopology(rect);
+
+        // Determine affordance action tag
+        let affordanceAction = "interaction";
+        const fullLabel = `${text} ${ariaLabel} ${title} ${placeholder}`.toLowerCase();
+        if (icon === "arrow_left" || fullLabel.includes("back") || ariaLabel.toLowerCase().includes("back")) {
+          affordanceAction = "navigate_back";
+        } else if (icon === "compose" || fullLabel.includes("compose") || fullLabel.includes("new mail") || fullLabel.includes("apply")) {
+          affordanceAction = "compose_or_action";
+        } else if (icon === "search" || role === "searchbox" || fullLabel.includes("search")) {
+          affordanceAction = "search";
+        } else if (isEmailRow) {
+          affordanceAction = "read_email_row";
+        } else if (role === "button" || el.tagName === "BUTTON") {
+          affordanceAction = "action_button";
+        }
+
+        const cleanLabel = (ariaLabel || title || placeholder || text).slice(0, 70).replace(/[\r\n\t]+/g, " ");
+        const affordanceStr = `[AFFORDANCE: ${affordanceAction} | ROLE: ${role} | LOCATION: ${location} | LABEL: '${cleanLabel}' | ICON: ${icon}]`;
+
+        candidates.push({
+          element: el,
+          tag: el.tagName,
+          text: text.slice(0, 140),
+          ariaLabel,
+          placeholder,
+          name,
+          title,
+          role,
+          isEmailRow,
+          rect,
+          icon,
+          location,
+          affordanceAction,
+          affordanceStr,
+        });
+
+        // Cap to the top 45 most prominent screen controls to guarantee sub-20ms inference
+        if (candidates.length >= 45) break;
+      } catch (err) {
+        // Gracefully ignore single rogue node errors and proceed
       }
-
-      // Ignore elements inside our own HUD
-      if (overlayRoot.contains(el)) continue;
-
-      // Filter out micro-elements nested inside email rows to prevent candidate flooding (393 -> 25)
-      const parentRow = el.closest("tr.zA, div[role='row'].zA");
-      if (parentRow && parentRow !== el) continue;
-
-      const isEmailRow = el.matches ? (el.matches("tr.zA, div[role='row'].zA, tr[role='row']") || el.classList.contains("zA")) : false;
-      const text = (el.innerText || el.textContent || "").trim();
-      const ariaLabel = el.getAttribute("aria-label") || "";
-      const placeholder = el.getAttribute("placeholder") || "";
-      const name = el.getAttribute("name") || "";
-      const title = el.getAttribute("title") || "";
-      const role = el.getAttribute("role") || el.tagName.toLowerCase();
-
-      const icon = classifyVisualIcon(el);
-      const location = classifySpatialTopology(rect);
-
-      // Determine affordance action tag
-      let affordanceAction = "interaction";
-      const fullLabel = `${text} ${ariaLabel} ${title} ${placeholder}`.toLowerCase();
-      if (icon === "arrow_left" || fullLabel.includes("back") || ariaLabel.toLowerCase().includes("back")) {
-        affordanceAction = "navigate_back";
-      } else if (icon === "compose" || fullLabel.includes("compose") || fullLabel.includes("new mail")) {
-        affordanceAction = "compose_new_mail";
-      } else if (icon === "search" || role === "searchbox") {
-        affordanceAction = "search";
-      } else if (isEmailRow) {
-        affordanceAction = "read_email_row";
-      } else if (role === "button" || el.tagName === "BUTTON") {
-        affordanceAction = "action_button";
-      }
-
-      const cleanLabel = (ariaLabel || title || placeholder || text).slice(0, 70).replace(/[\r\n\t]+/g, " ");
-      const affordanceStr = `[AFFORDANCE: ${affordanceAction} | ROLE: ${role} | LOCATION: ${location} | LABEL: '${cleanLabel}' | ICON: ${icon}]`;
-
-      candidates.push({
-        element: el,
-        tag: el.tagName,
-        text: text.slice(0, 140),
-        ariaLabel,
-        placeholder,
-        name,
-        title,
-        role,
-        isEmailRow,
-        rect,
-        icon,
-        location,
-        affordanceAction,
-        affordanceStr,
-      });
-
-      // Cap to the top 35 most prominent screen controls to guarantee sub-20ms inference
-      if (candidates.length >= 35) break;
     }
 
     return candidates;

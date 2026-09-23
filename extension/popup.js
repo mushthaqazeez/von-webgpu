@@ -49,7 +49,7 @@ async function triggerMentatInActiveTab(commandText = null) {
 
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        files: ["transformers.min.js", "engine.js", "content.js"],
+        files: ["system_two.js", "engine.js", "content.js"],
       });
 
       // Brief delay to allow content script initialization
