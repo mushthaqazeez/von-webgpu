@@ -38,7 +38,7 @@ chrome.commands.onCommand.addListener(async (command) => {
         });
         await chrome.scripting.executeScript({
           target: { tabId: tab.id },
-          files: ["transformers.min.js", "engine.js", "content.js"],
+          files: ["system_two.js", "engine.js", "content.js"],
         });
 
         setTimeout(async () => {
@@ -52,5 +52,20 @@ chrome.commands.onCommand.addListener(async (command) => {
         console.warn("[Mentat Background] Dynamic injection failed:", injectErr);
       }
     }
+  }
+});
+
+// Screenshot Visual Capture Gateway
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "capture-tab-screenshot") {
+    const windowId = sender.tab ? sender.tab.windowId : undefined;
+    chrome.tabs.captureVisibleTab(windowId, { format: "png" }, (dataUrl) => {
+      if (chrome.runtime.lastError || !dataUrl) {
+        sendResponse({ success: false, error: chrome.runtime.lastError?.message });
+      } else {
+        sendResponse({ success: true, dataUrl });
+      }
+    });
+    return true;
   }
 });

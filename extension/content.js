@@ -545,47 +545,67 @@
   }
 
   async function executeType(el, text, pressEnter = false) {
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
-    el.focus();
-    el.click();
-    await new Promise((r) => setTimeout(r, 80));
+    if (!el) return;
 
-    if (el.isContentEditable || el.getAttribute("contenteditable") === "true" || el.getAttribute("role") === "textbox") {
-      document.execCommand("selectAll", false, null);
-      document.execCommand("insertText", false, text);
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-    } else {
-      const nativeSetter = Object.getOwnPropertyDescriptor(
-        window.HTMLInputElement.prototype,
-        "value"
-      )?.set || Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;
-
-      if (nativeSetter) {
-        nativeSetter.call(el, text);
-      } else {
-        el.value = text;
-      }
-      el.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-      el.dispatchEvent(new Event("change", { bubbles: true }));
+    // Resolve actual editable element if given a button or container wrapper
+    let target = el;
+    if (el.tagName !== "INPUT" && el.tagName !== "TEXTAREA" && !el.isContentEditable) {
+      target = el.querySelector("input, textarea, [contenteditable]") ||
+               (document.activeElement && (document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "TEXTAREA" || document.activeElement.isContentEditable) ? document.activeElement : null) ||
+               document.querySelector("input:focus, textarea:focus, input[type='search'], input[placeholder*='search' i], input:not([type='hidden'])") ||
+               el;
     }
 
-    if (pressEnter) {
-      await new Promise((r) => setTimeout(r, 150));
-      const keyOpts = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true };
-      el.dispatchEvent(new KeyboardEvent("keydown", keyOpts));
-      el.dispatchEvent(new KeyboardEvent("keypress", keyOpts));
-      el.dispatchEvent(new KeyboardEvent("keyup", keyOpts));
-
-      // If wrapped in a form, trigger native form submission
-      if (el.form) {
-        try {
-          if (typeof el.form.requestSubmit === "function") {
-            el.form.requestSubmit();
-          }
-        } catch (_) {}
+    try {
+      if (typeof target.scrollIntoView === "function") {
+        target.scrollIntoView({ behavior: "smooth", block: "center" });
       }
+      if (typeof target.focus === "function") target.focus();
+      await new Promise((r) => setTimeout(r, 80));
+
+      if (target.isContentEditable || target.getAttribute("contenteditable") === "true" || target.getAttribute("role") === "textbox") {
+        document.execCommand("selectAll", false, null);
+        document.execCommand("insertText", false, text);
+        target.dispatchEvent(new Event("input", { bubbles: true }));
+        target.dispatchEvent(new Event("change", { bubbles: true }));
+      } else if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") {
+        const proto = target.tagName === "INPUT" ? window.HTMLInputElement.prototype : window.HTMLTextAreaElement.prototype;
+        const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+
+        if (nativeSetter) {
+          nativeSetter.call(target, text);
+        } else {
+          target.value = text;
+        }
+        target.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
+        target.dispatchEvent(new Event("input", { bubbles: true }));
+        target.dispatchEvent(new Event("change", { bubbles: true }));
+      } else {
+        // Non-standard element fallback
+        target.innerText = text;
+        target.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+
+      if (pressEnter) {
+        await new Promise((r) => setTimeout(r, 150));
+        const keyOpts = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true };
+        target.dispatchEvent(new KeyboardEvent("keydown", keyOpts));
+        target.dispatchEvent(new KeyboardEvent("keypress", keyOpts));
+        target.dispatchEvent(new KeyboardEvent("keyup", keyOpts));
+
+        // If wrapped in a form, trigger native form submission
+        if (target.form) {
+          try {
+            if (typeof target.form.requestSubmit === "function") {
+              target.form.requestSubmit();
+            } else {
+              target.form.submit();
+            }
+          } catch (_) {}
+        }
+      }
+    } catch (typeErr) {
+      console.warn("[Mentat System 1] executeType error handled:", typeErr);
     }
   }
 
@@ -659,138 +679,137 @@
 
       statusEl.innerText = `[${i + 1}/${steps.length}] ${step.desc || step.action}`;
 
-      if (step.action === "WAIT_FOR") {
-        if (step.selector) {
-          await executeWaitFor(step.selector, step.timeoutMs || 1500);
-        } else {
-          await new Promise((r) => setTimeout(r, step.timeoutMs || 400));
-        }
-        if (stepEl) {
-          stepEl.className = "mentat-step-item success";
-          const icon = stepEl.querySelector(".mentat-step-icon");
-          if (icon) icon.innerText = "✓";
-        }
-        continue;
-      }
-
-      if (step.action === "SCROLL") {
-        const topDelta = step.direction === "up" ? -window.innerHeight * 0.7 : window.innerHeight * 0.7;
-        window.scrollBy({ top: topDelta, behavior: "smooth" });
-        await new Promise((r) => setTimeout(r, 400));
-        if (stepEl) {
-          stepEl.className = "mentat-step-item success";
-          const icon = stepEl.querySelector(".mentat-step-icon");
-          if (icon) icon.innerText = "✓";
-        }
-        continue;
-      }
-
-      if (step.action === "NAVIGATE") {
-        if (step.value === "back" || step.action === "back") window.history.back();
-        else if (step.value === "forward" || step.action === "forward") window.history.forward();
-        else if (step.value === "refresh" || step.action === "refresh") window.location.reload();
-        else if (step.value) window.location.href = step.value;
-        await new Promise((r) => setTimeout(r, 600));
-        if (stepEl) {
-          stepEl.className = "mentat-step-item success";
-          const icon = stepEl.querySelector(".mentat-step-icon");
-          if (icon) icon.innerText = "✓";
-        }
-        continue;
-      }
-
-      // Motor Target Grounding (CLICK / TYPE)
-      const currentCandidates = harvestInteractiveNodes(detectPageState());
-      let targetEl = null;
-
-      if (step.selector) {
-        targetEl = document.querySelector(step.selector);
-      }
-
-      if (!targetEl && step.target) {
-        const targetLower = step.target.toLowerCase();
-
-        // 1. Direct text/label matching against harvested affordance nodes
-        for (const c of currentCandidates) {
-          const cText = (c.text || c.ariaLabel || c.placeholder || "").toLowerCase();
-          if (cText && (cText === targetLower || cText.includes(targetLower) || targetLower.includes(cText))) {
-            targetEl = c.element;
-            break;
-          }
-        }
-
-        // 2. Direct DOM search for matching buttons/links on the page
-        if (!targetEl) {
-          const domButtons = Array.from(document.querySelectorAll("button, a, input, [role='button']"));
-          for (const btn of domButtons) {
-            const btnText = (btn.innerText || btn.getAttribute("aria-label") || btn.getAttribute("placeholder") || "").toLowerCase().trim();
-            if (btnText && (btnText === targetLower || btnText.includes(targetLower) || targetLower.includes(btnText))) {
-              targetEl = btn;
-              break;
+      try {
+        // Enforce hard 3.5-second circuit-breaker timeout per step so it can NEVER freeze or circle
+        await Promise.race([
+          (async () => {
+            if (step.action === "WAIT_FOR") {
+              if (step.selector) await executeWaitFor(step.selector, step.timeoutMs || 1500);
+              else await new Promise((r) => setTimeout(r, step.timeoutMs || 400));
+              return;
             }
-          }
-        }
 
-        // 3. System 1 Vector / Semantic Affordance Grounding (WebGPU)
-        if (!targetEl) {
-          const match = await window.MentatEngine.groundCommandToElements(step.target, currentCandidates, detectPageState());
-          if (match && match.winner && match.isActionable) {
-            targetEl = match.winner.element;
-          }
-        }
-      }
+            if (step.action === "SCROLL") {
+              const topDelta = step.direction === "up" ? -window.innerHeight * 0.7 : window.innerHeight * 0.7;
+              window.scrollBy({ top: topDelta, behavior: "smooth" });
+              await new Promise((r) => setTimeout(r, 400));
+              return;
+            }
 
-      // 4. Smart Target Fallback for TYPE action
-      if (!targetEl && step.action === "TYPE") {
-        // A) If an input was focused by the preceding CLICK/WAIT_FOR, target it!
-        if (
-          document.activeElement &&
-          document.activeElement !== document.body &&
-          (document.activeElement.tagName === "INPUT" ||
-            document.activeElement.tagName === "TEXTAREA" ||
-            document.activeElement.isContentEditable)
-        ) {
-          targetEl = document.activeElement;
-        }
+            if (step.action === "NAVIGATE") {
+              if (step.value === "back" || step.action === "back") window.history.back();
+              else if (step.value === "forward" || step.action === "forward") window.history.forward();
+              else if (step.value === "refresh" || step.action === "refresh") window.location.reload();
+              else if (step.value) window.location.href = step.value;
+              await new Promise((r) => setTimeout(r, 600));
+              return;
+            }
 
-        // B) Find the visible search or text input on screen
-        if (!targetEl) {
-          targetEl =
-            document.querySelector("input:focus, textarea:focus, [contenteditable]:focus") ||
-            document.querySelector("input[type='search'], input[placeholder*='search' i], input[aria-label*='search' i]") ||
-            document.querySelector("input[type='text'], input:not([type='hidden'])");
-        }
-      }
+            // Motor Target Grounding (CLICK / TYPE)
+            const currentCandidates = harvestInteractiveNodes(detectPageState());
+            let targetEl = null;
 
-      if (!targetEl) {
-        console.warn(`[Mentat System 1] Target not located for step ${i + 1}:`, step);
+            if (step.selector) {
+              targetEl = document.querySelector(step.selector);
+            }
+
+            if (!targetEl && step.target) {
+              const targetLower = step.target.toLowerCase();
+
+              // 1. Direct text/label matching against harvested affordance nodes
+              for (const c of currentCandidates) {
+                const cText = (c.text || c.ariaLabel || c.placeholder || "").toLowerCase();
+                if (cText && (cText === targetLower || cText.includes(targetLower) || targetLower.includes(cText))) {
+                  targetEl = c.element;
+                  break;
+                }
+              }
+
+              // 2. Direct DOM search for matching buttons/links on the page
+              if (!targetEl) {
+                const domButtons = Array.from(document.querySelectorAll("button, a, input, [role='button']"));
+                for (const btn of domButtons) {
+                  const btnText = (btn.innerText || btn.getAttribute("aria-label") || btn.getAttribute("placeholder") || "").toLowerCase().trim();
+                  if (btnText && (btnText === targetLower || btnText.includes(targetLower) || targetLower.includes(btnText))) {
+                    targetEl = btn;
+                    break;
+                  }
+                }
+              }
+
+              // 3. System 1 Vector / Semantic Affordance Grounding (WebGPU)
+              if (!targetEl) {
+                const match = await window.MentatEngine.groundCommandToElements(step.target, currentCandidates, detectPageState());
+                if (match && match.winner && match.isActionable) {
+                  targetEl = match.winner.element;
+                }
+              }
+            }
+
+            // 4. Smart Target Fallback for TYPE action
+            if (!targetEl && step.action === "TYPE") {
+              if (
+                document.activeElement &&
+                document.activeElement !== document.body &&
+                (document.activeElement.tagName === "INPUT" ||
+                  document.activeElement.tagName === "TEXTAREA" ||
+                  document.activeElement.isContentEditable)
+              ) {
+                targetEl = document.activeElement;
+              }
+
+              if (!targetEl) {
+                targetEl =
+                  document.querySelector("input:focus, textarea:focus, [contenteditable]:focus") ||
+                  document.querySelector("input[type='search'], input[placeholder*='search' i], input[aria-label*='search' i]") ||
+                  document.querySelector("input[type='text'], input:not([type='hidden'])");
+              }
+            }
+
+            if (!targetEl) {
+              throw new Error("Target not located on screen");
+            }
+
+            drawTargetLock(targetEl, 0.95, 12);
+            await new Promise((r) => setTimeout(r, 220));
+
+            if (step.action === "CLICK") {
+              executeClick(targetEl);
+            } else if (step.action === "TYPE") {
+              await executeType(targetEl, step.value || "", step.pressEnter || false);
+            }
+          })(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Step timed out after 3.5s")), 3500)),
+        ]);
+
+        if (stepEl) {
+          stepEl.className = "mentat-step-item success";
+          const icon = stepEl.querySelector(".mentat-step-icon");
+          if (icon) icon.innerText = "✓";
+        }
+      } catch (err) {
+        console.warn(`[Mentat System 1] Step ${i + 1} issue:`, err);
+        allSucceeded = false;
         if (stepEl) {
           stepEl.className = "mentat-step-item failed";
           const icon = stepEl.querySelector(".mentat-step-icon");
           if (icon) icon.innerText = "✗";
           const desc = stepEl.querySelector(".mentat-step-desc");
-          if (desc) desc.innerText += " (Not found on screen)";
+          if (desc) desc.innerText += ` (${err.message || "Failed"})`;
         }
-        allSucceeded = false;
-        continue;
-      }
 
-      drawTargetLock(targetEl, 0.95, 12);
-      await new Promise((r) => setTimeout(r, 220));
-
-      if (step.action === "CLICK") {
-        executeClick(targetEl);
-      } else if (step.action === "TYPE") {
-        await executeType(targetEl, step.value || "", step.pressEnter || false);
+        // Automatic visual screenshot capture of failure state
+        try {
+          chrome.runtime.sendMessage({ action: "capture-tab-screenshot" }, (res) => {
+            if (res && res.success) {
+              console.log("[Mentat Visual Cortex] Screenshot captured for visual state grounding.");
+            }
+          });
+        } catch (_) {}
+      } finally {
+        clearTargetLock();
+        await new Promise((r) => setTimeout(r, 250));
       }
-
-      clearTargetLock();
-      if (stepEl) {
-        stepEl.className = "mentat-step-item success";
-        const icon = stepEl.querySelector(".mentat-step-icon");
-        if (icon) icon.innerText = "✓";
-      }
-      await new Promise((r) => setTimeout(r, 350));
     }
 
     if (allSucceeded) {
