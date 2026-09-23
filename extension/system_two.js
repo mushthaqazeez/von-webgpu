@@ -220,8 +220,13 @@ Generate the exact execution plan. Output raw JSON only.`;
         rawResponseText = data.choices?.[0]?.message?.content || "";
       }
 
-      // Clean JSON delimiters if model output Markdown backticks
-      const cleanJson = rawResponseText.replace(/```(json)?/gi, "").trim();
+      // Strip reasoning tags (e.g. <think>...</think> from Qwen/DeepSeek) and Markdown blocks
+      let cleanJson = rawResponseText.replace(/<think>[\s\S]*?<\/think>/gi, "").replace(/```(json)?/gi, "").trim();
+      const firstBrace = cleanJson.indexOf("{");
+      const lastBrace = cleanJson.lastIndexOf("}");
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        cleanJson = cleanJson.slice(firstBrace, lastBrace + 1);
+      }
       const plan = JSON.parse(cleanJson);
 
       return {
